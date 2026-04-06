@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Mail, Users, UserCog, Settings, LogOut, PanelLeft, Shield } from "lucide-react";
+import { Mail, Users, UserCog, Settings, LogOut, PanelLeft, Shield, Sparkles } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -160,6 +160,10 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
                   <Mail className="h-5 w-5 text-primary shrink-0" />
                   <span className="font-semibold tracking-tight truncate text-sm">
                     Outbound Mail OS
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20 shrink-0">
+                    <Sparkles className="h-3 w-3" />
+                    GPT-4o
                   </span>
                 </div>
               )}

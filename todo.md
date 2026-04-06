@@ -41,3 +41,11 @@
 ## Testing
 - [x] Auth guard and admin access tests (9 tests passing)
 - [x] Core business logic tests with mocked dependencies (auth guards, admin access, protected routes)
+
+## GPT API Integration
+- [x] Configure OpenAI API Key as environment secret
+- [x] Create dedicated GPT service module (server/services/gpt.ts)
+- [x] Replace built-in LLM calls with GPT-4o in llm-engine.ts
+- [x] Enhance prompts for GPT-level reasoning (chain-of-thought, structured output)
+- [x] Add frontend indicator showing GPT-powered status
+- [x] Test and verify GPT integration works end-to-end
