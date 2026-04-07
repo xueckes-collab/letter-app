@@ -8,19 +8,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { Globe, Mail, User, Upload, ArrowRight, Loader2, Users, FileText, Zap } from "lucide-react";
+import {
+  Globe, Mail, User, Upload, ArrowRight, Loader2, Users, FileText,
+  Zap, Bell, Clock, Send, CheckCircle2
+} from "lucide-react";
 
 export default function Home() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const profile = trpc.profile.get.useQuery();
   const leadsList = trpc.leads.list.useQuery();
+  const notifications = trpc.notifications.unreadCount.useQuery();
 
   const stats = useMemo(() => {
     const leads = leadsList.data || [];
     return {
       total: leads.length,
-      drafts: leads.filter((l: any) => l.currentState === 'waiting_user_send' || l.currentState === 'waiting_user_send_followup').length,
+      new: leads.filter((l: any) => l.currentState === 'input_ready' || l.status === 'new').length,
+      drafts: leads.filter((l: any) => l.currentState === 'waiting_user_send' || l.currentState === 'waiting_user_send_followup' || l.status === 'email_drafted' || l.status === 'followup_drafted').length,
       waiting: leads.filter((l: any) => l.currentState === 'waiting_response_status').length,
       replied: leads.filter((l: any) => l.replyStatus !== 'not_checked').length,
     };
@@ -52,66 +57,89 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
-        <p className="text-muted-foreground mt-1">
-          {user?.name ? `${user.name}，` : ''}管理你的销售外联流程
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
+          <p className="text-muted-foreground mt-1">
+            {user?.name ? `${user.name}，` : ''}管理你的销售外联流程
+          </p>
+        </div>
+        {(notifications.data ?? 0) > 0 && (
+          <Button variant="outline" size="sm" className="relative" onClick={() => setLocation('/automation')}>
+            <Bell className="h-4 w-4 mr-2" />
+            {notifications.data} 条通知
+            <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card className="cursor-pointer hover:border-primary/30 transition-colors" onClick={() => setLocation('/leads')}>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">总客户数</p>
-                <p className="text-3xl font-bold mt-1">{stats.total}</p>
+                <p className="text-xs text-muted-foreground">总客户</p>
+                <p className="text-2xl font-bold mt-1">{stats.total}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Users className="h-6 w-6 text-primary" />
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:border-blue-500/30 transition-colors" onClick={() => setLocation('/automation')}>
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">待生成</p>
+                <p className="text-2xl font-bold mt-1">{stats.new}</p>
+              </div>
+              <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Zap className="h-5 w-5 text-blue-500" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">待发送</p>
-                <p className="text-3xl font-bold mt-1">{stats.drafts}</p>
+                <p className="text-xs text-muted-foreground">待发送</p>
+                <p className="text-2xl font-bold mt-1">{stats.drafts}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                <FileText className="h-6 w-6 text-amber-500" />
+              <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Send className="h-5 w-5 text-amber-500" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">等待回复</p>
-                <p className="text-3xl font-bold mt-1">{stats.waiting}</p>
+                <p className="text-xs text-muted-foreground">等待回复</p>
+                <p className="text-2xl font-bold mt-1">{stats.waiting}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                <Mail className="h-6 w-6 text-blue-500" />
+              <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <Clock className="h-5 w-5 text-violet-500" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-5 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">已回复</p>
-                <p className="text-3xl font-bold mt-1">{stats.replied}</p>
+                <p className="text-xs text-muted-foreground">已回复</p>
+                <p className="text-2xl font-bold mt-1">{stats.replied}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <Zap className="h-6 w-6 text-green-500" />
+              <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               </div>
             </div>
           </CardContent>
@@ -123,6 +151,32 @@ export default function Home() {
         <QuickAddLead />
         <BulkImport />
       </div>
+
+      {/* Automation CTA */}
+      {(stats.new > 0 || stats.drafts > 0) && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">自动化中心就绪</p>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.new > 0 && `${stats.new} 个客户待生成邮件`}
+                    {stats.new > 0 && stats.drafts > 0 && ' · '}
+                    {stats.drafts > 0 && `${stats.drafts} 封邮件待发送`}
+                  </p>
+                </div>
+              </div>
+              <Button onClick={() => setLocation('/automation')} size="sm">
+                前往自动化 <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -201,6 +255,7 @@ function QuickAddLead() {
 
 function BulkImport() {
   const [bulkText, setBulkText] = useState('');
+  const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
 
   const bulkImport = trpc.leads.bulkImport.useMutation({
@@ -219,7 +274,7 @@ function BulkImport() {
           <Upload className="h-5 w-5 text-primary" />
           批量导入
         </CardTitle>
-        <CardDescription>每行一条记录，格式：邮箱, 网站, 联系人名（可选）</CardDescription>
+        <CardDescription>每行一条记录，格式：邮箱, 网站, 联系人名（可选）。导入后可在自动化中心一键生成开发信。</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -236,13 +291,15 @@ function BulkImport() {
             onChange={(e) => setBulkText(e.target.value)}
             rows={6}
           />
-          <Button type="submit" variant="outline" disabled={bulkImport.isPending} className="w-full">
-            {bulkImport.isPending ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />导入中...</>
-            ) : (
-              '批量导入客户'
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" variant="outline" disabled={bulkImport.isPending} className="flex-1">
+              {bulkImport.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />导入中...</>
+              ) : (
+                <><Upload className="mr-2 h-4 w-4" />批量导入客户</>
+              )}
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>

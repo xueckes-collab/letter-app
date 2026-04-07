@@ -157,6 +157,9 @@ export const emailSequences = mysqlTable("email_sequences", {
   version: varchar("version", { length: 64 }),
   thinkingSummary: json("thinkingSummary"),
   status: varchar("status", { length: 64 }).default("draft").notNull(),
+  sentAt: timestamp("sentAt"),
+  gmailMessageId: varchar("gmailMessageId", { length: 255 }),
+  gmailThreadId: varchar("gmailThreadId", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -197,8 +200,57 @@ export const leadStates = mysqlTable("lead_states", {
   nextAction: text("nextAction"),
   nextCheckAt: timestamp("nextCheckAt"),
   lastReportNote: text("lastReportNote"),
+  lastSentAt: timestamp("lastSentAt"),
+  followUpDueAt: timestamp("followUpDueAt"),
+  autoFollowUpEnabled: boolean("autoFollowUpEnabled").default(true).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// ============================================================
+// 11. NOTIFICATIONS
+// ============================================================
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  leadId: int("leadId"),
+  type: varchar("type", { length: 64 }).notNull(), // reply_detected, followup_due, batch_complete
+  title: varchar("title", { length: 500 }).notNull(),
+  message: text("message"),
+  isRead: boolean("isRead").default(false).notNull(),
+  actionUrl: varchar("actionUrl", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+
 export type LeadState = typeof leadStates.$inferSelect;
 export type InsertLeadState = typeof leadStates.$inferInsert;
+
+// ============================================================
+// 12. EMAIL ACCOUNTS (SMTP / Snov.io configs)
+// ============================================================
+export const emailAccounts = mysqlTable("email_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  provider: varchar("provider", { length: 64 }).notNull(), // smtp, snovio, gmail
+  label: varchar("label", { length: 255 }).notNull(), // user-friendly name
+  email: varchar("email", { length: 320 }).notNull(), // sender email address
+  smtpHost: varchar("smtpHost", { length: 255 }),
+  smtpPort: int("smtpPort"),
+  smtpUser: varchar("smtpUser", { length: 320 }),
+  smtpPass: varchar("smtpPass", { length: 500 }),
+  smtpSecure: boolean("smtpSecure").default(true).notNull(),
+  imapHost: varchar("imapHost", { length: 255 }),
+  imapPort: int("imapPort"),
+  imapSecure: boolean("imapSecure").default(true).notNull(),
+  snovioClientId: varchar("snovioClientId", { length: 255 }),
+  snovioClientSecret: varchar("snovioClientSecret", { length: 255 }),
+  isDefault: boolean("isDefault").default(false).notNull(),
+  isVerified: boolean("isVerified").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EmailAccount = typeof emailAccounts.$inferSelect;
+export type InsertEmailAccount = typeof emailAccounts.$inferInsert;

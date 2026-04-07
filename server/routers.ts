@@ -3,6 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import { getSchedulerHealth } from "./services/scheduler";
 import {
   getSenderProfile, upsertSenderProfile, createSenderAsset,
   createLead, getLeadsByUser, getLeadById, getLeadWithRelations,
@@ -10,12 +11,21 @@ import {
   createEmailSequence, updateEmailSequence, getEmailsByLead,
   createReplyAnalysis, getLeadState, upsertLeadState,
   updateLeadStatus, updateLeadCompanyInfo,
+  createNotification, getNotifications, getUnreadNotificationCount,
+  markNotificationRead, markAllNotificationsRead,
+  getLeadsReadyForFollowUp, markEmailSent, getLatestSentEmail,
+  getLeadsByIds, getAllUsers,
+  createEmailAccount, getEmailAccountsByUser, getEmailAccountById,
+  getDefaultEmailAccount, updateEmailAccount, deleteEmailAccount,
+  getDraftEmailsForLeads,
 } from "./db";
 import { scrapeWebsite, formatScrapingResults } from "./services/scraper";
 import { analyzeWebsite, matchICP, matchUSP, generateEmail, analyzeReply } from "./services/llm-engine";
 import { getStrategyForRound } from "./services/follow-up-strategies";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
+import { validateSnovioCredentials, domainSearch } from "./services/snovio";
+import { sendEmail, batchSendEmails, verifySMTP, SMTP_PRESETS } from "./services/email-sender";
 
 // Helper: build sender context string for LLM
 async function buildSenderContext(userId: number): Promise<string> {
@@ -31,9 +41,69 @@ async function buildSenderContext(userId: number): Promise<string> {
   return ctx;
 }
 
-// Helper: build thinking cards from analysis steps
 function buildThinkingCards(steps: Array<{ title: string; items: string[] }>) {
   return steps.map((step, i) => ({ id: `step-${i}`, title: step.title, items: step.items }));
+}
+
+// Helper: process a single lead through the full analysis + email generation pipeline
+async function processLeadPipeline(leadId: number, userId: number, email: string, website: string, contactName?: string | null) {
+  const scrapeResult = await scrapeWebsite(website);
+  const scrapedText = formatScrapingResults(scrapeResult);
+  const senderContext = await buildSenderContext(userId);
+
+  const waResult = await analyzeWebsite(scrapedText, senderContext);
+  await saveWebsiteAnalysis({
+    userId, leadId,
+    industry: waResult.industry, businessModel: waResult.businessModel,
+    productFocus: waResult.productFocus, marketPosition: waResult.marketPosition,
+    websiteSignals: waResult.websiteSignals, purchaseIntentScore: waResult.purchaseIntentScore,
+    triggerEvents: waResult.triggerEvents, rawSummary: waResult.rawSummary,
+  });
+
+  if (waResult.companyName || waResult.country) {
+    await updateLeadCompanyInfo(leadId, waResult.companyName || '', waResult.country || '');
+  }
+
+  const icpResult = await matchICP(waResult, senderContext);
+  await saveIcpMatch({
+    userId, leadId,
+    icpName: icpResult.icpName, buyerRoles: icpResult.buyerRoles,
+    painPoints: icpResult.painPoints, triggers: icpResult.triggers,
+    decisionStyle: icpResult.decisionStyle, salesAngles: icpResult.salesAngles,
+  });
+
+  const uspResult = await matchUSP(waResult, icpResult, senderContext);
+  await saveUspMatch({
+    userId, leadId,
+    primaryUsp: uspResult.primaryUsp, secondaryUsp: uspResult.secondaryUsp,
+    whyFit: uspResult.whyFit, proofPoints: uspResult.proofPoints, emailAngle: uspResult.emailAngle,
+  });
+
+  const emailResult = await generateEmail({
+    type: 'warm',
+    websiteAnalysis: waResult, icpMatch: icpResult, uspMatch: uspResult,
+    senderContext, contactName: contactName || undefined,
+  });
+
+  const emailId = await createEmailSequence({
+    userId, leadId, emailType: 'warm',
+    subject: emailResult.subject, body: emailResult.body,
+    strategyType: 'initial_warm', stageNumber: 0,
+    thinkingSummary: [
+      { title: 'Website Analysis', items: [waResult.rawSummary, `Industry: ${waResult.industry}`, `Intent Score: ${waResult.purchaseIntentScore}/10`] },
+      { title: 'ICP Match', items: [`Type: ${icpResult.icpName}`, `Pain Points: ${(icpResult.painPoints || []).join(', ')}`] },
+      { title: 'USP Selection', items: [`Primary: ${uspResult.primaryUsp}`, `Why: ${uspResult.whyFit}`] },
+    ],
+    status: 'draft',
+  });
+
+  await upsertLeadState(leadId, userId, {
+    currentState: 'waiting_user_send', currentRound: 0,
+    lastEmailType: 'warm', nextAction: 'Send the warm email to the prospect',
+  });
+  await updateLeadStatus(leadId, 'email_drafted', 'blue', 'not_checked');
+
+  return { emailId, emailResult, waResult, icpResult, uspResult };
 }
 
 export const appRouter = router({
@@ -87,7 +157,6 @@ export const appRouter = router({
         const fileKey = `sender-assets/${ctx.user.id}/${nanoid()}-${input.fileName}`;
         const { url } = await storagePut(fileKey, buffer, input.mimeType || 'application/octet-stream');
 
-        // Extract text from uploaded file using LLM vision
         let extractedText: string | null = null;
         try {
           const { invokeLLM } = await import("./_core/llm");
@@ -97,7 +166,7 @@ export const appRouter = router({
           if (isImage || isPdf) {
             const result = await invokeLLM({
               messages: [
-                { role: "system", content: "Extract all text content from this document. Return the raw text only, no formatting or commentary." },
+                { role: "system", content: "Extract all text content from this document. Return the raw text only." },
                 { role: "user", content: [
                   { type: "text", text: `Extract text from this ${isPdf ? 'PDF' : 'image'} file: ${input.fileName}` },
                   ...(isImage ? [{ type: "image_url" as const, image_url: { url } }] : [{ type: "file_url" as const, file_url: { url, mime_type: "application/pdf" as const } }]),
@@ -111,14 +180,9 @@ export const appRouter = router({
         }
 
         const assetId = await createSenderAsset({
-          userId: ctx.user.id,
-          senderProfileId: profile.id,
-          fileName: input.fileName,
-          mimeType: input.mimeType || null,
-          fileSize: input.fileSize || null,
-          fileUrl: url,
-          fileKey,
-          extractedText,
+          userId: ctx.user.id, senderProfileId: profile.id,
+          fileName: input.fileName, mimeType: input.mimeType || null,
+          fileSize: input.fileSize || null, fileUrl: url, fileKey, extractedText,
         });
         return { success: true, assetId, url };
       }),
@@ -145,115 +209,24 @@ export const appRouter = router({
         contactName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        // 1. Create lead
         const leadId = await createLead({
-          userId: ctx.user.id,
-          email: input.email,
-          website: input.website,
-          contactName: input.contactName || null,
-          source: 'manual',
-          status: 'new',
-          replyStatus: 'not_checked',
-          statusColor: 'slate',
+          userId: ctx.user.id, email: input.email, website: input.website,
+          contactName: input.contactName || null, source: 'manual',
+          status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
         });
 
-        // 2. Scrape website
-        const scrapeResult = await scrapeWebsite(input.website);
-        const scrapedText = formatScrapingResults(scrapeResult);
-        const senderContext = await buildSenderContext(ctx.user.id);
-
-        // 3. Analyze website
-        const waResult = await analyzeWebsite(scrapedText, senderContext);
-        await saveWebsiteAnalysis({
-          userId: ctx.user.id,
-          leadId,
-          industry: waResult.industry,
-          businessModel: waResult.businessModel,
-          productFocus: waResult.productFocus,
-          marketPosition: waResult.marketPosition,
-          websiteSignals: waResult.websiteSignals,
-          purchaseIntentScore: waResult.purchaseIntentScore,
-          triggerEvents: waResult.triggerEvents,
-          rawSummary: waResult.rawSummary,
-        });
-
-        // Update lead with extracted info
-        if (waResult.companyName || waResult.country) {
-          await updateLeadCompanyInfo(leadId, waResult.companyName || '', waResult.country || '');
-        }
-
-        // 4. ICP match
-        const icpResult = await matchICP(waResult, senderContext);
-        await saveIcpMatch({
-          userId: ctx.user.id,
-          leadId,
-          icpName: icpResult.icpName,
-          buyerRoles: icpResult.buyerRoles,
-          painPoints: icpResult.painPoints,
-          triggers: icpResult.triggers,
-          decisionStyle: icpResult.decisionStyle,
-          salesAngles: icpResult.salesAngles,
-        });
-
-        // 5. USP match
-        const uspResult = await matchUSP(waResult, icpResult, senderContext);
-        await saveUspMatch({
-          userId: ctx.user.id,
-          leadId,
-          primaryUsp: uspResult.primaryUsp,
-          secondaryUsp: uspResult.secondaryUsp,
-          whyFit: uspResult.whyFit,
-          proofPoints: uspResult.proofPoints,
-          emailAngle: uspResult.emailAngle,
-        });
-
-        // 6. Generate warm email
-        const emailResult = await generateEmail({
-          type: 'warm',
-          websiteAnalysis: waResult,
-          icpMatch: icpResult,
-          uspMatch: uspResult,
-          senderContext,
-          contactName: input.contactName,
-        });
-
-        const emailId = await createEmailSequence({
-          userId: ctx.user.id,
-          leadId,
-          emailType: 'warm',
-          subject: emailResult.subject,
-          body: emailResult.body,
-          strategyType: 'initial_warm',
-          stageNumber: 0,
-          thinkingSummary: [
-            { title: 'Website Analysis', items: [waResult.rawSummary, `Industry: ${waResult.industry}`, `Intent Score: ${waResult.purchaseIntentScore}/10`] },
-            { title: 'ICP Match', items: [`Type: ${icpResult.icpName}`, `Pain Points: ${(icpResult.painPoints || []).join(', ')}`] },
-            { title: 'USP Selection', items: [`Primary: ${uspResult.primaryUsp}`, `Why: ${uspResult.whyFit}`] },
-          ],
-          status: 'draft',
-        });
-
-        // 7. Set lead state
-        await upsertLeadState(leadId, ctx.user.id, {
-          currentState: 'waiting_user_send',
-          currentRound: 0,
-          lastEmailType: 'warm',
-          nextAction: 'Send the warm email to the prospect',
-        });
-        await updateLeadStatus(leadId, 'email_drafted', 'blue', 'not_checked');
-
+        const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
         const state = await getLeadState(leadId);
         const lead = await getLeadById(leadId, ctx.user.id);
 
         return {
-          lead,
-          state,
-          email: { id: emailId, subject: emailResult.subject, body: emailResult.body, type: 'warm', round: 0 },
+          lead, state,
+          email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
           thinkingCards: buildThinkingCards([
-            { title: '🌐 网站分析', items: [waResult.rawSummary, `行业: ${waResult.industry}`, `购买意向: ${waResult.purchaseIntentScore}/10`] },
-            { title: '🎯 ICP 匹配', items: [`类型: ${icpResult.icpName}`, `痛点: ${(icpResult.painPoints || []).join(', ')}`] },
-            { title: '💎 USP 选择', items: [`主打: ${uspResult.primaryUsp}`, `原因: ${uspResult.whyFit}`] },
-            { title: '✉️ 邮件策略', items: [emailResult.strategyNotes] },
+            { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
+            { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
+            { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
+            { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
           ]),
         };
       }),
@@ -265,6 +238,7 @@ export const appRouter = router({
         let successCount = 0;
         let failedCount = 0;
         const batchId = nanoid(8);
+        const importedLeadIds: number[] = [];
 
         for (const line of lines) {
           try {
@@ -273,21 +247,297 @@ export const appRouter = router({
             const website = parts.find(p => p.includes('.') && !p.includes('@')) || '';
             const contactName = parts.find(p => !p.includes('@') && !p.includes('.')) || '';
             if (!email || !website) { failedCount++; continue; }
-            await createLead({
-              userId: ctx.user.id,
-              email, website, contactName: contactName || null,
+            const leadId = await createLead({
+              userId: ctx.user.id, email, website, contactName: contactName || null,
               importBatchId: batchId, source: 'bulk',
               status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
             });
+            importedLeadIds.push(leadId);
             successCount++;
           } catch { failedCount++; }
         }
-        return { successCount, failedCount, batchId };
+        return { successCount, failedCount, batchId, importedLeadIds };
       }),
   }),
 
   // ============================================================
-  // WORKFLOW
+  // BATCH OPERATIONS
+  // ============================================================
+  batch: router({
+    // Generate emails for multiple leads at once
+    generateEmails: protectedProcedure
+      .input(z.object({ leadIds: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        const results: Array<{ leadId: number; success: boolean; error?: string }> = [];
+        let processed = 0;
+
+        for (const leadId of input.leadIds) {
+          try {
+            const lead = await getLeadById(leadId, ctx.user.id);
+            if (!lead) { results.push({ leadId, success: false, error: 'Lead not found' }); continue; }
+
+            // Check if already has email
+            const existing = await getEmailsByLead(leadId);
+            if (existing.length > 0) { results.push({ leadId, success: true, error: 'Already has email' }); continue; }
+
+            await processLeadPipeline(leadId, ctx.user.id, lead.email, lead.website, lead.contactName);
+            results.push({ leadId, success: true });
+            processed++;
+          } catch (e: any) {
+            results.push({ leadId, success: false, error: e.message?.substring(0, 100) });
+          }
+        }
+
+        // Notify user
+        await createNotification({
+          userId: ctx.user.id, type: 'batch_complete',
+          title: `批量生成完成`,
+          message: `已为 ${processed} 个客户生成开发信，共 ${input.leadIds.length} 个客户`,
+          actionUrl: '/leads',
+        });
+
+        return { total: input.leadIds.length, processed, results };
+      }),
+
+    // Send emails via configured email account (SMTP/Snov.io)
+    sendEmails: protectedProcedure
+      .input(z.object({
+        emailIds: z.array(z.number()),
+        accountId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Check if user has email account configured
+        const account = input.accountId
+          ? await getEmailAccountById(input.accountId, ctx.user.id)
+          : await getDefaultEmailAccount(ctx.user.id);
+
+        if (!account) {
+          throw new Error('请先在「邮箱设置」中配置发件邮箱');
+        }
+
+        const result = await batchSendEmails(ctx.user.id, input.emailIds, input.accountId);
+        return result;
+      }),
+
+    // Get draft emails ready for sending (for batch send confirmation)
+    getDraftEmails: protectedProcedure
+      .input(z.object({ leadIds: z.array(z.number()) }))
+      .query(async ({ ctx, input }) => {
+        return getDraftEmailsForLeads(input.leadIds, ctx.user.id);
+      }),
+
+    // Get leads that need follow-up (48h passed)
+    getFollowUpDue: protectedProcedure.query(async ({ ctx }) => {
+      return getLeadsReadyForFollowUp(ctx.user.id);
+    }),
+
+    // Generate follow-up emails for multiple leads
+    generateFollowUps: protectedProcedure
+      .input(z.object({ leadIds: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        const results: Array<{ leadId: number; success: boolean; emailId?: number; error?: string }> = [];
+
+        for (const leadId of input.leadIds) {
+          try {
+            const data = await getLeadWithRelations(leadId, ctx.user.id);
+            if (!data) { results.push({ leadId, success: false, error: 'Lead not found' }); continue; }
+
+            const currentState = data.leadState;
+            const nextRound = (currentState?.currentRound || 0) + 1;
+            const strategy = getStrategyForRound(nextRound);
+            const senderContext = await buildSenderContext(ctx.user.id);
+
+            const previousEmails = data.emailSequences.map(e => ({
+              subject: e.subject || '', body: e.body || '', type: e.emailType,
+            }));
+
+            const emailResult = await generateEmail({
+              type: 'followup',
+              websiteAnalysis: (data.websiteAnalysis || {}) as Record<string, unknown>,
+              icpMatch: (data.icpMatch || {}) as Record<string, unknown>,
+              uspMatch: (data.uspMatch || {}) as Record<string, unknown>,
+              senderContext, contactName: data.lead.contactName || undefined,
+              round: nextRound, previousEmails,
+              followupStrategy: strategy ? (strategy as unknown as Record<string, unknown>) : undefined,
+            });
+
+            const emailId = await createEmailSequence({
+              userId: ctx.user.id, leadId, emailType: 'followup',
+              subject: emailResult.subject, body: emailResult.body,
+              strategyType: strategy?.name || `Round ${nextRound}`, stageNumber: nextRound,
+              thinkingSummary: [
+                { title: `Round ${nextRound}: ${strategy?.nameZh || 'Follow-up'}`, items: [strategy?.description || '', emailResult.strategyNotes] },
+              ],
+              status: 'draft',
+            });
+
+            await upsertLeadState(leadId, ctx.user.id, {
+              currentState: 'waiting_user_send_followup', currentRound: nextRound,
+              lastEmailType: 'followup', nextAction: `Send round ${nextRound} follow-up email`,
+            });
+            await updateLeadStatus(leadId, 'followup_drafted', 'amber', 'not_checked');
+
+            results.push({ leadId, success: true, emailId });
+          } catch (e: any) {
+            results.push({ leadId, success: false, error: e.message?.substring(0, 100) });
+          }
+        }
+
+        await createNotification({
+          userId: ctx.user.id, type: 'batch_complete',
+          title: '跟进邮件生成完成',
+          message: `已为 ${results.filter(r => r.success).length} 个客户生成跟进信`,
+          actionUrl: '/leads',
+        });
+
+        return { total: input.leadIds.length, generated: results.filter(r => r.success).length, results };
+      }),
+  }),
+
+  // ============================================================
+  // NOTIFICATIONS
+  // ============================================================
+  notifications: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getNotifications(ctx.user.id);
+    }),
+
+    unreadCount: protectedProcedure.query(async ({ ctx }) => {
+      return getUnreadNotificationCount(ctx.user.id);
+    }),
+
+    markRead: protectedProcedure
+      .input(z.object({ notificationId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await markNotificationRead(input.notificationId, ctx.user.id);
+        return { success: true };
+      }),
+
+    markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
+      await markAllNotificationsRead(ctx.user.id);
+      return { success: true };
+    }),
+
+    schedulerHealth: protectedProcedure.query(() => {
+      return getSchedulerHealth();
+    }),
+  }),
+
+  // ============================================================
+  // SNOVIO
+  // ============================================================
+  snovio: router({
+    validateCredentials: protectedProcedure.query(async () => {
+      return validateSnovioCredentials();
+    }),
+
+    domainSearch: protectedProcedure
+      .input(z.object({ domain: z.string() }))
+      .mutation(async ({ input }) => {
+        return domainSearch(input.domain);
+      }),
+  }),
+
+  // ============================================================
+  // EMAIL ACCOUNTS
+  // ============================================================
+  emailAccounts: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getEmailAccountsByUser(ctx.user.id);
+    }),
+
+    getPresets: publicProcedure.query(() => {
+      return Object.entries(SMTP_PRESETS).map(([key, val]) => ({
+        key, label: key.charAt(0).toUpperCase() + key.slice(1),
+        host: val.host, port: val.port, secure: val.secure,
+      }));
+    }),
+
+    create: protectedProcedure
+      .input(z.object({
+        provider: z.string(),
+        label: z.string().min(1),
+        email: z.string().email(),
+        smtpHost: z.string().optional(),
+        smtpPort: z.number().optional(),
+        smtpUser: z.string().optional(),
+        smtpPass: z.string().optional(),
+        smtpSecure: z.boolean().optional(),
+        imapHost: z.string().optional(),
+        imapPort: z.number().optional(),
+        imapSecure: z.boolean().optional(),
+        snovioClientId: z.string().optional(),
+        snovioClientSecret: z.string().optional(),
+        isDefault: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await createEmailAccount({
+          userId: ctx.user.id,
+          provider: input.provider,
+          label: input.label,
+          email: input.email,
+          smtpHost: input.smtpHost || null,
+          smtpPort: input.smtpPort || null,
+          smtpUser: input.smtpUser || null,
+          smtpPass: input.smtpPass || null,
+          smtpSecure: input.smtpSecure ?? true,
+          imapHost: input.imapHost || null,
+          imapPort: input.imapPort || null,
+          imapSecure: input.imapSecure ?? true,
+          snovioClientId: input.snovioClientId || null,
+          snovioClientSecret: input.snovioClientSecret || null,
+          isDefault: input.isDefault ?? false,
+        });
+        return { success: true, id };
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        label: z.string().optional(),
+        email: z.string().email().optional(),
+        smtpHost: z.string().optional(),
+        smtpPort: z.number().optional(),
+        smtpUser: z.string().optional(),
+        smtpPass: z.string().optional(),
+        smtpSecure: z.boolean().optional(),
+        isDefault: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { accountId, ...data } = input;
+        await updateEmailAccount(accountId, ctx.user.id, data);
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await deleteEmailAccount(input.accountId, ctx.user.id);
+        return { success: true };
+      }),
+
+    verify: protectedProcedure
+      .input(z.object({
+        smtpHost: z.string(),
+        smtpPort: z.number(),
+        smtpUser: z.string(),
+        smtpPass: z.string(),
+        smtpSecure: z.boolean(),
+      }))
+      .mutation(async ({ input }) => {
+        return verifySMTP(input);
+      }),
+
+    setDefault: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await updateEmailAccount(input.accountId, ctx.user.id, { isDefault: true });
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================
+  // WORKFLOW (single lead operations)
   // ============================================================
   workflow: router({
     loadLead: protectedProcedure
@@ -296,7 +546,6 @@ export const appRouter = router({
         const data = await getLeadWithRelations(input.leadId, ctx.user.id);
         if (!data) throw new Error("Lead not found");
 
-        // Build timeline
         const timeline: Array<Record<string, unknown>> = [];
         for (const email of data.emailSequences) {
           const thinking = email.thinkingSummary as Array<{ title: string; items: string[] }> | null;
@@ -304,12 +553,11 @@ export const appRouter = router({
             timeline.push({ id: `thinking-${email.id}`, kind: 'thinking', title: `${email.emailType} 思考流程`, cards: thinking });
           }
           timeline.push({
-            id: String(email.id),
-            kind: 'email',
+            id: String(email.id), kind: 'email',
             email: {
               id: email.id, subject: email.subject, body: email.body,
               type: email.emailType, round: email.stageNumber,
-              status: email.status,
+              status: email.status, sentAt: email.sentAt,
             },
           });
         }
@@ -318,11 +566,17 @@ export const appRouter = router({
       }),
 
     markSent: protectedProcedure
-      .input(z.object({ leadId: z.number() }))
+      .input(z.object({ leadId: z.number(), emailId: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
+        if (input.emailId) {
+          await markEmailSent(input.emailId);
+        }
+        const followUpDueAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
         await upsertLeadState(input.leadId, ctx.user.id, {
           currentState: 'waiting_response_status',
-          nextAction: 'Wait for prospect response or mark no reply for follow-up',
+          lastSentAt: new Date(),
+          followUpDueAt,
+          nextAction: 'Wait for prospect response. Auto follow-up in 48h.',
         });
         await updateLeadStatus(input.leadId, 'email_sent', 'blue', 'not_checked');
         return { state: await getLeadState(input.leadId) };
@@ -334,29 +588,20 @@ export const appRouter = router({
         const data = await getLeadWithRelations(input.leadId, ctx.user.id);
         if (!data) throw new Error("Lead not found");
         const senderContext = await buildSenderContext(ctx.user.id);
-        const waData = data.websiteAnalysis || {};
-        const icpData = data.icpMatch || {};
-        const uspData = data.uspMatch || {};
 
         const emailResult = await generateEmail({
           type: 'warm',
-          websiteAnalysis: waData as Record<string, unknown>,
-          icpMatch: icpData as Record<string, unknown>,
-          uspMatch: uspData as Record<string, unknown>,
-          senderContext,
-          contactName: data.lead.contactName || undefined,
+          websiteAnalysis: (data.websiteAnalysis || {}) as Record<string, unknown>,
+          icpMatch: (data.icpMatch || {}) as Record<string, unknown>,
+          uspMatch: (data.uspMatch || {}) as Record<string, unknown>,
+          senderContext, contactName: data.lead.contactName || undefined,
         });
 
-        await updateEmailSequence(input.emailId, {
-          subject: emailResult.subject,
-          body: emailResult.body,
-        });
+        await updateEmailSequence(input.emailId, { subject: emailResult.subject, body: emailResult.body });
 
         return {
           email: { id: input.emailId, subject: emailResult.subject, body: emailResult.body, type: 'warm', round: 0 },
-          thinkingCards: buildThinkingCards([
-            { title: '🔄 重新生成', items: [emailResult.strategyNotes] },
-          ]),
+          thinkingCards: buildThinkingCards([{ title: '🔄 重新生成', items: [emailResult.strategyNotes] }]),
         };
       }),
 
@@ -380,21 +625,15 @@ export const appRouter = router({
           websiteAnalysis: (data.websiteAnalysis || {}) as Record<string, unknown>,
           icpMatch: (data.icpMatch || {}) as Record<string, unknown>,
           uspMatch: (data.uspMatch || {}) as Record<string, unknown>,
-          senderContext,
-          contactName: data.lead.contactName || undefined,
-          round: nextRound,
-          previousEmails,
+          senderContext, contactName: data.lead.contactName || undefined,
+          round: nextRound, previousEmails,
           followupStrategy: strategy ? (strategy as unknown as Record<string, unknown>) : undefined,
         });
 
         const emailId = await createEmailSequence({
-          userId: ctx.user.id,
-          leadId: input.leadId,
-          emailType: 'followup',
-          subject: emailResult.subject,
-          body: emailResult.body,
-          strategyType: strategy?.name || `Round ${nextRound}`,
-          stageNumber: nextRound,
+          userId: ctx.user.id, leadId: input.leadId, emailType: 'followup',
+          subject: emailResult.subject, body: emailResult.body,
+          strategyType: strategy?.name || `Round ${nextRound}`, stageNumber: nextRound,
           thinkingSummary: [
             { title: `Round ${nextRound}: ${strategy?.nameZh || 'Follow-up'}`, items: [strategy?.description || '', emailResult.strategyNotes] },
           ],
@@ -402,10 +641,8 @@ export const appRouter = router({
         });
 
         await upsertLeadState(input.leadId, ctx.user.id, {
-          currentState: 'waiting_user_send_followup',
-          currentRound: nextRound,
-          lastEmailType: 'followup',
-          nextAction: `Send round ${nextRound} follow-up email`,
+          currentState: 'waiting_user_send_followup', currentRound: nextRound,
+          lastEmailType: 'followup', nextAction: `Send round ${nextRound} follow-up email`,
         });
         await updateLeadStatus(input.leadId, 'followup_drafted', 'amber', 'not_checked');
 
@@ -429,7 +666,6 @@ export const appRouter = router({
           subject: e.subject || '', body: e.body || '', type: e.emailType,
         }));
 
-        // 1. Analyze the reply
         const replyResult = await analyzeReply(input.replyContent, {
           websiteAnalysis: (data.websiteAnalysis || {}) as Record<string, unknown>,
           icpMatch: (data.icpMatch || {}) as Record<string, unknown>,
@@ -437,37 +673,27 @@ export const appRouter = router({
         });
 
         await createReplyAnalysis({
-          userId: ctx.user.id,
-          leadId: input.leadId,
-          originalReply: input.replyContent,
-          replyType: replyResult.replyType,
-          explicitNeeds: replyResult.explicitNeeds,
-          hiddenConcerns: replyResult.hiddenConcerns,
+          userId: ctx.user.id, leadId: input.leadId,
+          originalReply: input.replyContent, replyType: replyResult.replyType,
+          explicitNeeds: replyResult.explicitNeeds, hiddenConcerns: replyResult.hiddenConcerns,
           recommendedNextAction: replyResult.recommendedNextAction,
           thinkingSummary: [
             { title: '回复分析', items: [`类型: ${replyResult.replyType}`, `建议: ${replyResult.recommendedNextAction}`] },
           ],
         });
 
-        // 2. Generate reply email
         const emailResult = await generateEmail({
           type: 'reply',
           websiteAnalysis: (data.websiteAnalysis || {}) as Record<string, unknown>,
           icpMatch: (data.icpMatch || {}) as Record<string, unknown>,
           uspMatch: (data.uspMatch || {}) as Record<string, unknown>,
-          senderContext,
-          contactName: data.lead.contactName || undefined,
-          previousEmails,
-          replyContent: input.replyContent,
-          replyAnalysis: replyResult,
+          senderContext, contactName: data.lead.contactName || undefined,
+          previousEmails, replyContent: input.replyContent, replyAnalysis: replyResult,
         });
 
         const emailId = await createEmailSequence({
-          userId: ctx.user.id,
-          leadId: input.leadId,
-          emailType: 'reply',
-          subject: emailResult.subject,
-          body: emailResult.body,
+          userId: ctx.user.id, leadId: input.leadId, emailType: 'reply',
+          subject: emailResult.subject, body: emailResult.body,
           strategyType: `reply_to_${replyResult.replyType}`,
           stageNumber: (data.leadState?.currentRound || 0),
           thinkingSummary: [
@@ -478,11 +704,10 @@ export const appRouter = router({
         });
 
         await upsertLeadState(input.leadId, ctx.user.id, {
-          currentState: 'drafting_reply_email',
-          hasReply: true,
-          replyPastedAt: new Date(),
-          lastEmailType: 'reply',
+          currentState: 'drafting_reply_email', hasReply: true,
+          replyPastedAt: new Date(), lastEmailType: 'reply',
           nextAction: 'Review and send the reply email',
+          followUpDueAt: null, // Cancel auto follow-up since we got a reply
         });
 
         const replyStatusColor = replyResult.replyType === 'interested' ? 'green' : replyResult.replyType === 'not_interested' ? 'rose' : 'amber';
@@ -502,8 +727,7 @@ export const appRouter = router({
       .input(z.object({ leadId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await upsertLeadState(input.leadId, ctx.user.id, {
-          currentState: 'waiting_response_status',
-          hasReply: false,
+          currentState: 'waiting_response_status', hasReply: false,
           nextAction: 'Generate follow-up email',
         });
         return { state: await getLeadState(input.leadId) };
@@ -515,11 +739,7 @@ export const appRouter = router({
   // ============================================================
   admin: router({
     listUsers: adminProcedure.query(async () => {
-      const { getDb } = await import("./db");
-      const db = await getDb();
-      if (!db) return [];
-      const { users } = await import("../drizzle/schema");
-      return db.select().from(users).orderBy(users.createdAt);
+      return getAllUsers();
     }),
   }),
 });

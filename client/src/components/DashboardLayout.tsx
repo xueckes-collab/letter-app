@@ -21,16 +21,24 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Mail, Users, UserCog, Settings, LogOut, PanelLeft, Shield, Sparkles } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { Mail, Users, UserCog, LogOut, PanelLeft, Shield, Sparkles, Bell, Zap, Settings } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const menuItems = [
   { icon: Mail, label: "工作台", path: "/" },
   { icon: Users, label: "客户管理", path: "/leads" },
+  { icon: Zap, label: "自动化", path: "/automation" },
   { icon: UserCog, label: "发件人资料", path: "/profile" },
+  { icon: Settings, label: "邮箱设置", path: "/email-settings" },
 ];
 
 const adminMenuItems = [
@@ -41,6 +49,85 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 260;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 400;
+
+function NotificationBell() {
+  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, {
+    refetchInterval: 30000,
+  });
+  const { data: notifications } = trpc.notifications.list.useQuery();
+  const markRead = trpc.notifications.markRead.useMutation();
+  const markAllRead = trpc.notifications.markAllRead.useMutation();
+  const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
+
+  const handleMarkAllRead = () => {
+    markAllRead.mutate(undefined, {
+      onSuccess: () => {
+        utils.notifications.unreadCount.invalidate();
+        utils.notifications.list.invalidate();
+      },
+    });
+  };
+
+  const handleClick = (n: { id: number; actionUrl: string | null }) => {
+    markRead.mutate({ notificationId: n.id }, {
+      onSuccess: () => {
+        utils.notifications.unreadCount.invalidate();
+        utils.notifications.list.invalidate();
+      },
+    });
+    if (n.actionUrl) setLocation(n.actionUrl);
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="relative h-9 w-9 flex items-center justify-center hover:bg-accent rounded-lg transition-colors">
+          <Bell className="h-4 w-4 text-muted-foreground" />
+          {(unreadCount ?? 0) > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-medium flex items-center justify-center px-1">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="end">
+        <div className="flex items-center justify-between p-3 border-b">
+          <span className="text-sm font-medium">通知</span>
+          {(unreadCount ?? 0) > 0 && (
+            <button onClick={handleMarkAllRead} className="text-xs text-primary hover:underline">
+              全部已读
+            </button>
+          )}
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          {(!notifications || notifications.length === 0) ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">暂无通知</div>
+          ) : (
+            notifications.slice(0, 20).map((n) => (
+              <button
+                key={n.id}
+                onClick={() => handleClick(n)}
+                className={`w-full text-left p-3 border-b last:border-0 hover:bg-accent/50 transition-colors ${!n.isRead ? 'bg-primary/5' : ''}`}
+              >
+                <div className="flex items-start gap-2">
+                  {!n.isRead && <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{n.title}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">
+                      {new Date(n.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -73,7 +160,7 @@ export default function DashboardLayout({
               Outbound Mail OS
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              AI 驱动的 B2B 销售外联自动化系统。登录后开始使用。
+              AI 驱动的 B2B 销售外联自动化系统。登录后即可免费使用。
             </p>
           </div>
           <Button
@@ -81,8 +168,11 @@ export default function DashboardLayout({
             size="lg"
             className="w-full shadow-lg hover:shadow-xl transition-all"
           >
-            登录
+            免费注册 / 登录
           </Button>
+          <p className="text-xs text-muted-foreground text-center">
+            点击上方按钮即可注册新账号或登录已有账号
+          </p>
         </div>
       </div>
     );
@@ -192,6 +282,9 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
           </SidebarContent>
 
           <SidebarFooter className="p-3">
+            <div className="flex items-center gap-1 mb-2 group-data-[collapsible=icon]:justify-center">
+              <NotificationBell />
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -229,6 +322,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <span className="tracking-tight text-foreground">{activeMenuItem?.label ?? "Menu"}</span>
             </div>
+            <NotificationBell />
           </div>
         )}
         <main className="flex-1 p-4">{children}</main>

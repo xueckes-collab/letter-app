@@ -10,6 +10,8 @@ import LeadsPage from "./pages/Leads";
 import ProfilePage from "./pages/Profile";
 import LeadDetailPage from "./pages/LeadDetail";
 import AdminPage from "./pages/Admin";
+import AutomationPage from "./pages/Automation";
+import EmailSettingsPage from "./pages/EmailSettings";
 
 function Router() {
   return (
@@ -19,6 +21,8 @@ function Router() {
         <Route path="/leads" component={LeadsPage} />
         <Route path="/leads/:id" component={LeadDetailPage} />
         <Route path="/profile" component={ProfilePage} />
+        <Route path="/automation" component={AutomationPage} />
+        <Route path="/email-settings" component={EmailSettingsPage} />
         <Route path="/admin" component={AdminPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

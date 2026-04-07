@@ -10,8 +10,16 @@ import { toast } from "sonner";
 import {
   Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSquare,
   ChevronDown, ChevronUp, Copy, Check, Globe, Building2,
-  Target, Lightbulb, Brain, SkipForward
+  Brain, SkipForward, CheckCircle2, Clock
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function LeadDetailPage() {
   const params = useParams<{ id: string }>();
@@ -26,6 +34,11 @@ export default function LeadDetailPage() {
 
   const markSent = trpc.workflow.markSent.useMutation({
     onSuccess: () => { toast.success('已标记为已发送'); utils.workflow.loadLead.invalidate({ leadId }); utils.leads.list.invalidate(); },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const batchSend = trpc.batch.sendEmails.useMutation({
+    onSuccess: () => { toast.success('邮件已发送'); utils.workflow.loadLead.invalidate({ leadId }); utils.leads.list.invalidate(); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -50,6 +63,9 @@ export default function LeadDetailPage() {
     onError: (err) => toast.error(err.message),
   });
 
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+  const [emailToSend, setEmailToSend] = useState<{ id: number; subject: string; body: string } | null>(null);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -73,7 +89,26 @@ export default function LeadDetailPage() {
   const currentState = state?.currentState || 'input_ready';
   const currentRound = state?.currentRound || 0;
 
-  const isProcessing = markSent.isPending || generateFollowup.isPending || analyzeReplyMut.isPending || regenerateEmail.isPending || markNoReply.isPending;
+  const isProcessing = markSent.isPending || generateFollowup.isPending || analyzeReplyMut.isPending || regenerateEmail.isPending || markNoReply.isPending || batchSend.isPending;
+
+  // Find the latest draft email for sending
+  const latestDraftEmail = timeline?.filter((t: any) => t.kind === 'email' && t.email?.status === 'draft').pop() as any;
+
+  const handleSendViaGmail = (email: { id: number; subject: string; body: string }) => {
+    setEmailToSend(email);
+    setShowSendConfirm(true);
+  };
+
+  const handleConfirmSend = async () => {
+    if (!emailToSend) return;
+    setShowSendConfirm(false);
+    try {
+      await batchSend.mutateAsync({
+        emailIds: [emailToSend.id],
+      });
+    } catch { /* handled by mutation */ }
+    setEmailToSend(null);
+  };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -107,15 +142,27 @@ export default function LeadDetailPage() {
               <span className="font-medium text-foreground">{state?.nextAction || '等待操作'}</span>
             </p>
 
-            {(currentState === 'waiting_user_send' || currentState === 'waiting_user_send_followup' || currentState === 'drafting_reply_email') && (
-              <Button
-                onClick={() => markSent.mutate({ leadId })}
-                disabled={isProcessing}
-                size="sm"
-              >
-                {markSent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                标记已发送
-              </Button>
+            {(currentState === 'waiting_user_send' || currentState === 'waiting_user_send_followup' || currentState === 'drafting_reply_email') && latestDraftEmail && (
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handleSendViaGmail(latestDraftEmail.email)}
+                  disabled={isProcessing}
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {batchSend.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  发送邮件
+                </Button>
+                <Button
+                  onClick={() => markSent.mutate({ leadId, emailId: latestDraftEmail.email.id })}
+                  disabled={isProcessing}
+                  size="sm"
+                  variant="outline"
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  手动标记已发送
+                </Button>
+              </div>
             )}
 
             {currentState === 'waiting_response_status' && (
@@ -197,8 +244,12 @@ export default function LeadDetailPage() {
                   <EmailCard
                     key={item.id}
                     email={item.email}
+                    leadEmail={lead.email}
+                    leadId={leadId}
                     onRegenerate={() => regenerateEmail.mutate({ leadId, emailId: item.email.id })}
+                    onSend={() => handleSendViaGmail(item.email)}
                     isRegenerating={regenerateEmail.isPending}
+                    isSending={batchSend.isPending}
                   />
                 );
               }
@@ -213,6 +264,41 @@ export default function LeadDetailPage() {
           </Card>
         )}
       </div>
+
+      {/* Send Confirmation Dialog */}
+      <Dialog open={showSendConfirm} onOpenChange={setShowSendConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认发送邮件</DialogTitle>
+            <DialogDescription>
+              即将发送邮件给 <strong>{lead.email}</strong>。发送后将开始48小时自动跟进倒计时。
+            </DialogDescription>
+          </DialogHeader>
+          {emailToSend && (
+            <div className="space-y-3 my-2">
+              <div className="p-3 rounded-lg bg-accent/50">
+                <p className="text-xs text-muted-foreground mb-1">收件人</p>
+                <p className="text-sm font-medium">{lead.email}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-accent/50">
+                <p className="text-xs text-muted-foreground mb-1">主题</p>
+                <p className="text-sm font-medium">{emailToSend.subject}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-accent/50 max-h-40 overflow-y-auto">
+                <p className="text-xs text-muted-foreground mb-1">正文预览</p>
+                <p className="text-sm whitespace-pre-wrap">{emailToSend.body.substring(0, 300)}{emailToSend.body.length > 300 ? '...' : ''}</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSendConfirm(false)}>取消</Button>
+            <Button onClick={handleConfirmSend} className="bg-emerald-600 hover:bg-emerald-700">
+              <Send className="h-4 w-4 mr-2" />
+              确认发送
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -251,10 +337,14 @@ function ThinkingCard({ title, cards }: { title: string; cards: Array<{ title: s
   );
 }
 
-function EmailCard({ email, onRegenerate, isRegenerating }: {
-  email: { id: number; subject: string; body: string; type: string; round: number; status?: string };
+function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerating, isSending }: {
+  email: { id: number; subject: string; body: string; type: string; round: number; status?: string; sentAt?: string | null };
+  leadEmail: string;
+  leadId: number;
   onRegenerate: () => void;
+  onSend: () => void;
   isRegenerating: boolean;
+  isSending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -273,6 +363,8 @@ function EmailCard({ email, onRegenerate, isRegenerating }: {
     });
   };
 
+  const isSent = email.status === 'sent';
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -281,24 +373,47 @@ function EmailCard({ email, onRegenerate, isRegenerating }: {
             <Mail className="h-4 w-4 text-primary" />
             <CardTitle className="text-base">{typeLabels[email.type] || email.type}</CardTitle>
             {email.round > 0 && <Badge variant="secondary" className="text-xs">R{email.round}</Badge>}
-            {email.status === 'draft' && <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/20">草稿</Badge>}
+            {isSent ? (
+              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                <CheckCircle2 className="h-3 w-3 mr-1" />已发送
+              </Badge>
+            ) : email.status === 'draft' ? (
+              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/20">草稿</Badge>
+            ) : null}
+            {email.sentAt && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {new Date(email.sentAt).toLocaleString()}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={copyToClipboard}>
               {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
             </Button>
-            <Button
-              variant="ghost" size="icon" className="h-8 w-8"
-              onClick={onRegenerate} disabled={isRegenerating}
-            >
-              <RefreshCw className={`h-4 w-4 ${isRegenerating ? 'animate-spin' : ''}`} />
-            </Button>
+            {!isSent && (
+              <>
+                <Button
+                  variant="ghost" size="icon" className="h-8 w-8"
+                  onClick={onRegenerate} disabled={isRegenerating}
+                >
+                  <RefreshCw className={`h-4 w-4 ${isRegenerating ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost" size="sm" className="h-8 text-emerald-400 hover:text-emerald-300"
+                  onClick={onSend} disabled={isSending}
+                >
+                  {isSending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+                  发送
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div>
-          <p className="text-xs text-muted-foreground mb-1">主题</p>
+          <p className="text-xs text-muted-foreground mb-1">收件人: {leadEmail} | 主题</p>
           <p className="text-sm font-medium">{email.subject}</p>
         </div>
         <Separator />

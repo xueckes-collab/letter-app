@@ -15,6 +15,27 @@
       "when": 1775478076809,
       "tag": "0001_certain_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1775484760286,
+      "tag": "0002_breezy_domino",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1775485915092,
+      "tag": "0003_icy_killer_shrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775543221356,
+      "tag": "0004_many_psylocke",
+      "breakpoints": true
     }
   ]
 }

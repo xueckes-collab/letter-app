@@ -263,3 +263,227 @@ export async function updateLeadCompanyInfo(leadId: number, companyName: string,
   if (!db) return;
   await db.update(leads).set({ companyName, country }).where(eq(leads.id, leadId));
 }
+
+// ============================================================
+// NOTIFICATION HELPERS
+// ============================================================
+import { notifications, InsertNotification } from "../drizzle/schema";
+
+export async function createNotification(data: InsertNotification) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(notifications).values(data).$returningId();
+  return result[0].id;
+}
+
+export async function getNotifications(userId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(notifications)
+    .where(eq(notifications.userId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(limit);
+}
+
+export async function getUnreadNotificationCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db.select({ count: sql<number>`count(*)` })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  return result[0]?.count || 0;
+}
+
+export async function markNotificationRead(notificationId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(notifications).set({ isRead: true })
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+}
+
+export async function markAllNotificationsRead(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(notifications).set({ isRead: true })
+    .where(eq(notifications.userId, userId));
+}
+
+// ============================================================
+// BATCH / AUTOMATION HELPERS
+// ============================================================
+export async function getLeadsReadyForFollowUp(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  // Find leads where followUpDueAt has passed, autoFollowUp is enabled, and no reply
+  const now = new Date();
+  const states = await db.select().from(leadStates)
+    .where(and(
+      eq(leadStates.userId, userId),
+      eq(leadStates.autoFollowUpEnabled, true),
+      eq(leadStates.hasReply, false),
+      sql`${leadStates.followUpDueAt} IS NOT NULL AND ${leadStates.followUpDueAt} <= ${now}`
+    ));
+
+  const result = [];
+  for (const state of states) {
+    const lead = await db.select().from(leads).where(eq(leads.id, state.leadId)).limit(1);
+    if (lead[0]) {
+      result.push({ ...lead[0], leadState: state });
+    }
+  }
+  return result;
+}
+
+export async function getLeadsByIds(leadIds: number[], userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (!leadIds.length) return [];
+  const result = [];
+  for (const id of leadIds) {
+    const rows = await db.select().from(leads).where(and(eq(leads.id, id), eq(leads.userId, userId))).limit(1);
+    if (rows[0]) result.push(rows[0]);
+  }
+  return result;
+}
+
+export async function markEmailSent(emailId: number, gmailMessageId?: string, gmailThreadId?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(emailSequences).set({
+    status: "sent",
+    sentAt: new Date(),
+    gmailMessageId: gmailMessageId || null,
+    gmailThreadId: gmailThreadId || null,
+  }).where(eq(emailSequences.id, emailId));
+}
+
+export async function getLatestSentEmail(leadId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(emailSequences)
+    .where(and(eq(emailSequences.leadId, leadId), eq(emailSequences.status, "sent")))
+    .orderBy(desc(emailSequences.sentAt))
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(users).orderBy(desc(users.createdAt));
+}
+
+// ============================================================
+// EMAIL ACCOUNTS
+// ============================================================
+import { emailAccounts, InsertEmailAccount, EmailAccount } from "../drizzle/schema";
+
+export async function createEmailAccount(data: InsertEmailAccount): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // If setting as default, unset other defaults first
+  if (data.isDefault) {
+    await db.update(emailAccounts).set({ isDefault: false })
+      .where(eq(emailAccounts.userId, data.userId));
+  }
+
+  const result = await db.insert(emailAccounts).values(data).$returningId();
+  return result[0].id;
+}
+
+export async function getEmailAccountsByUser(userId: number): Promise<EmailAccount[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(emailAccounts)
+    .where(eq(emailAccounts.userId, userId))
+    .orderBy(desc(emailAccounts.createdAt));
+}
+
+export async function getEmailAccountById(accountId: number, userId: number): Promise<EmailAccount | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(emailAccounts)
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
+    .limit(1);
+  return rows[0];
+}
+
+export async function getDefaultEmailAccount(userId: number): Promise<EmailAccount | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  // Try default first
+  let rows = await db.select().from(emailAccounts)
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isDefault, true)))
+    .limit(1);
+  if (rows[0]) return rows[0];
+  // Fallback to first account
+  rows = await db.select().from(emailAccounts)
+    .where(eq(emailAccounts.userId, userId))
+    .limit(1);
+  return rows[0];
+}
+
+export async function updateEmailAccount(accountId: number, userId: number, data: Partial<InsertEmailAccount>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  if (data.isDefault) {
+    await db.update(emailAccounts).set({ isDefault: false })
+      .where(eq(emailAccounts.userId, userId));
+  }
+
+  await db.update(emailAccounts).set(data)
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)));
+}
+
+export async function deleteEmailAccount(accountId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(emailAccounts)
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)));
+}
+
+// Get draft emails for a list of leads (for batch sending)
+export async function getDraftEmailsForLeads(leadIds: number[], userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (!leadIds.length) return [];
+
+  const results: Array<{
+    emailId: number; leadId: number; to: string; subject: string; body: string;
+    companyName: string | null; emailType: string;
+  }> = [];
+
+  for (const leadId of leadIds) {
+    // Get the latest draft email for this lead
+    const emails = await db.select().from(emailSequences)
+      .where(and(
+        eq(emailSequences.leadId, leadId),
+        eq(emailSequences.userId, userId),
+        eq(emailSequences.status, 'draft')
+      ))
+      .orderBy(desc(emailSequences.createdAt))
+      .limit(1);
+
+    if (emails[0] && emails[0].subject && emails[0].body) {
+      const lead = await db.select().from(leads)
+        .where(eq(leads.id, leadId))
+        .limit(1);
+
+      if (lead[0]) {
+        results.push({
+          emailId: emails[0].id,
+          leadId,
+          to: lead[0].email,
+          subject: emails[0].subject,
+          body: emails[0].body,
+          companyName: lead[0].companyName,
+          emailType: emails[0].emailType,
+        });
+      }
+    }
+  }
+
+  return results;
+}
