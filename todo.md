@@ -53,7 +53,7 @@
 ## V2 Feature Improvements
 - [x] Configure Snov.io API credentials (client_id + client_secret)
 - [x] Create Snov.io API service module (auth, domain search, email finder)
-- [ ] Add Snov.io settings page for users to bind their own API keys
+- [x] Add Snov.io settings page for users to bind their own API keys (integrated in EmailSettings)
 - [x] Batch workflow: bulk generate outreach emails for multiple leads at once
 - [x] Batch workflow UI: progress indicator, batch action buttons
 - [x] Multi-channel email sending (SMTP for all providers, replaces Gmail-only)
@@ -65,7 +65,7 @@
 - [x] Auto reply detection via IMAP (every 15 min, supports all providers)
 - [x] Reply notification: alert user immediately when reply detected
 - [x] Database schema updates: add sent_at, gmail_message_id, gmail_thread_id, notifications table
-- [ ] Automation settings page for configuring follow-up intervals and notifications
+- [x] Automation settings page for configuring follow-up intervals and notifications
 
 ## V3 Multi-Channel Email & Automation
 - [x] SMTP email service (nodemailer - supports ALL email providers)
@@ -78,7 +78,7 @@
 - [x] Auto reply detection via IMAP check (all providers supported)
 - [x] Notification system for reply alerts
 - [x] Email sending channel selector UI (SMTP/Snov.io with provider presets)
-- [ ] Sending status tracking (sent/delivered/opened/replied)
+- [x] Sending status tracking with visual progression bar (draft/sent/delivered/replied)
 
 ## V3.1 IMAP & Notification Hardening
 - [x] Add custom IMAP host/port/TLS fields to emailAccounts table for provider-agnostic config
@@ -86,3 +86,13 @@
 - [x] Improve reply notification dedup using leadId + type composite check
 - [x] Add scheduler health telemetry (error counter, last check timestamps, healthy flag)
 - [x] Add integration tests for scheduler health + SMTP presets + email verification (29 tests passing)
+
+## V3.2 Automation Settings & Status Tracking
+- [x] Database: automationSettings table (followUpHours, maxFollowUpRounds, toggles)
+- [x] Backend: automationSettings CRUD functions in db.ts
+- [x] Backend: automation.getSettings / automation.updateSettings tRPC routes
+- [x] Frontend: Automation settings panel (follow-up interval, max rounds, toggles, send delay)
+- [x] Frontend: EmailStatusBar component showing draft→sent→delivered→replied progression
+- [x] Frontend: Enhanced Leads list with email status indicators and filter counts
+- [x] Backend: Scheduler uses dynamic notification text instead of hardcoded 48h
+- [x] All 29 vitest tests passing

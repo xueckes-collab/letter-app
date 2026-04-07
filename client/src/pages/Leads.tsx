@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
-import { Globe, Mail, ArrowRight, Loader2, Building2, MapPin, Search, X } from "lucide-react";
+import {
+  Globe, Mail, ArrowRight, Loader2, Building2, MapPin, Search, X,
+  FileEdit, Send, CheckCircle, MessageCircle, Clock
+} from "lucide-react";
 
 const stateLabels: Record<string, string> = {
   input_ready: '待处理',
@@ -23,11 +26,23 @@ const statusColorMap: Record<string, string> = {
   rose: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
 };
 
+// Email status display config
+const emailStatusConfig: Record<string, { label: string; icon: typeof FileEdit; color: string }> = {
+  new: { label: '新客户', icon: Globe, color: 'text-slate-400' },
+  email_drafted: { label: '邮件已生成', icon: FileEdit, color: 'text-amber-400' },
+  followup_drafted: { label: '跟进已生成', icon: FileEdit, color: 'text-amber-400' },
+  email_sent: { label: '已发送', icon: Send, color: 'text-blue-400' },
+  contacted: { label: '已联系', icon: CheckCircle, color: 'text-emerald-400' },
+  reply_received: { label: '已回复', icon: MessageCircle, color: 'text-violet-400' },
+  followup_due: { label: '需跟进', icon: Clock, color: 'text-rose-400' },
+};
+
 const filterOptions = [
   { key: 'all', label: '全部' },
-  { key: 'waiting_user_send', label: '待发送' },
-  { key: 'waiting_response_status', label: '等待回复' },
-  { key: 'drafting_reply_email', label: '已回复' },
+  { key: 'new', label: '新客户' },
+  { key: 'drafted', label: '待发送' },
+  { key: 'sent', label: '已发送' },
+  { key: 'replied', label: '已回复' },
 ];
 
 export default function LeadsPage() {
@@ -50,14 +65,51 @@ export default function LeadsPage() {
       );
     }
     if (statusFilter !== 'all') {
-      if (statusFilter === 'drafting_reply_email') {
-        result = result.filter((l: any) => l.replyStatus !== 'not_checked');
-      } else {
-        result = result.filter((l: any) => l.currentState === statusFilter || l.currentState === statusFilter + '_followup');
+      switch (statusFilter) {
+        case 'new':
+          result = result.filter((l: any) => l.status === 'new' || l.currentState === 'input_ready');
+          break;
+        case 'drafted':
+          result = result.filter((l: any) =>
+            l.status === 'email_drafted' || l.status === 'followup_drafted' ||
+            l.currentState === 'waiting_user_send' || l.currentState === 'waiting_user_send_followup'
+          );
+          break;
+        case 'sent':
+          result = result.filter((l: any) =>
+            l.status === 'email_sent' || l.status === 'contacted' ||
+            l.currentState === 'waiting_response_status'
+          );
+          break;
+        case 'replied':
+          result = result.filter((l: any) =>
+            l.status === 'reply_received' || l.replyStatus !== 'not_checked'
+          );
+          break;
       }
     }
     return result;
   }, [leads, search, statusFilter]);
+
+  // Counts for filter badges
+  const counts = useMemo(() => {
+    if (!leads) return { all: 0, new: 0, drafted: 0, sent: 0, replied: 0 };
+    return {
+      all: leads.length,
+      new: leads.filter((l: any) => l.status === 'new' || l.currentState === 'input_ready').length,
+      drafted: leads.filter((l: any) =>
+        l.status === 'email_drafted' || l.status === 'followup_drafted' ||
+        l.currentState === 'waiting_user_send' || l.currentState === 'waiting_user_send_followup'
+      ).length,
+      sent: leads.filter((l: any) =>
+        l.status === 'email_sent' || l.status === 'contacted' ||
+        l.currentState === 'waiting_response_status'
+      ).length,
+      replied: leads.filter((l: any) =>
+        l.status === 'reply_received' || l.replyStatus !== 'not_checked'
+      ).length,
+    };
+  }, [leads]);
 
   if (isLoading) {
     return (
@@ -105,6 +157,9 @@ export default function LeadsPage() {
               className="text-xs"
             >
               {opt.label}
+              {(counts as any)[opt.key] > 0 && (
+                <span className="ml-1 text-[10px] opacity-70">({(counts as any)[opt.key]})</span>
+              )}
             </Button>
           ))}
         </div>
@@ -134,53 +189,64 @@ export default function LeadsPage() {
       ) : (
         <div className="grid gap-3">
           <p className="text-xs text-muted-foreground">{filteredLeads.length} 条结果</p>
-          {filteredLeads.map((lead: any) => (
-            <Card
-              key={lead.id}
-              className="cursor-pointer hover:border-primary/30 transition-all group"
-              onClick={() => setLocation(`/leads/${lead.id}`)}
-            >
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0 flex-1">
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Building2 className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium truncate">{lead.companyName || lead.website}</p>
-                        {lead.contactName && (
-                          <span className="text-sm text-muted-foreground">({lead.contactName})</span>
-                        )}
+          {filteredLeads.map((lead: any) => {
+            const emailStatus = emailStatusConfig[lead.status] || emailStatusConfig.new;
+            const StatusIcon = emailStatus.icon;
+            return (
+              <Card
+                key={lead.id}
+                className="cursor-pointer hover:border-primary/30 transition-all group"
+                onClick={() => setLocation(`/leads/${lead.id}`)}
+              >
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <Building2 className="h-5 w-5 text-primary" />
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1 truncate">
-                          <Mail className="h-3 w-3" />{lead.email}
-                        </span>
-                        {lead.country && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />{lead.country}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium truncate">{lead.companyName || lead.website}</p>
+                          {lead.contactName && (
+                            <span className="text-sm text-muted-foreground">({lead.contactName})</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1 truncate">
+                            <Mail className="h-3 w-3" />{lead.email}
                           </span>
-                        )}
+                          {lead.country && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />{lead.country}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Badge variant="outline" className={statusColorMap[lead.statusColor] || statusColorMap.slate}>
-                      {stateLabels[lead.currentState] || lead.currentState}
-                    </Badge>
-                    {lead.currentRound > 0 && (
-                      <Badge variant="secondary" className="text-xs">
-                        R{lead.currentRound}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Email status indicator */}
+                      <div className={`flex items-center gap-1 text-xs ${emailStatus.color}`}>
+                        <StatusIcon className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">{emailStatus.label}</span>
+                      </div>
+
+                      {/* State badge */}
+                      <Badge variant="outline" className={statusColorMap[lead.statusColor] || statusColorMap.slate}>
+                        {stateLabels[lead.currentState] || lead.currentState}
                       </Badge>
-                    )}
-                    <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {lead.currentRound > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          R{lead.currentRound}
+                        </Badge>
+                      )}
+                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

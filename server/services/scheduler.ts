@@ -5,6 +5,7 @@
  * 2. Check for replies via IMAP → create notifications
  */
 import { getDb } from "../db";
+import { getAutomationSettings } from "../db";
 import { leads, leadStates, emailAccounts, notifications } from "../../drizzle/schema";
 import { eq, and, lte, isNotNull, sql } from "drizzle-orm";
 
@@ -121,7 +122,7 @@ async function checkUserFollowUpDue(userId: number) {
     userId,
     type: "followup_due",
     title: `${dueLeads.length} 个客户需要跟进`,
-    message: `${leadNames}${moreText} 已超过48小时未回复，建议发送跟进邮件。`,
+    message: `${leadNames}${moreText} 已超过跟进间隔未回复，建议发送跟进邮件。`,
     actionUrl: "/automation",
     isRead: false,
   });

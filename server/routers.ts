@@ -18,6 +18,7 @@ import {
   createEmailAccount, getEmailAccountsByUser, getEmailAccountById,
   getDefaultEmailAccount, updateEmailAccount, deleteEmailAccount,
   getDraftEmailsForLeads,
+  getAutomationSettings, upsertAutomationSettings,
 } from "./db";
 import { scrapeWebsite, formatScrapingResults } from "./services/scraper";
 import { analyzeWebsite, matchICP, matchUSP, generateEmail, analyzeReply } from "./services/llm-engine";
@@ -731,6 +732,38 @@ export const appRouter = router({
           nextAction: 'Generate follow-up email',
         });
         return { state: await getLeadState(input.leadId) };
+      }),
+  }),
+
+  // ============================================================
+  // AUTOMATION SETTINGS
+  // ============================================================
+  automation: router({
+    getSettings: protectedProcedure.query(async ({ ctx }) => {
+      const settings = await getAutomationSettings(ctx.user.id);
+      return settings || {
+        followUpHours: 48,
+        maxFollowUpRounds: 9,
+        autoFollowUpEnabled: true,
+        replyCheckEnabled: true,
+        notifyOnReply: true,
+        notifyOnFollowUpDue: true,
+        sendDelaySeconds: 5,
+      };
+    }),
+
+    updateSettings: protectedProcedure
+      .input(z.object({
+        followUpHours: z.number().min(1).max(720).optional(),
+        maxFollowUpRounds: z.number().min(1).max(20).optional(),
+        autoFollowUpEnabled: z.boolean().optional(),
+        replyCheckEnabled: z.boolean().optional(),
+        notifyOnReply: z.boolean().optional(),
+        notifyOnFollowUpDue: z.boolean().optional(),
+        sendDelaySeconds: z.number().min(1).max(60).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return upsertAutomationSettings(ctx.user.id, input);
       }),
   }),
 

@@ -3,13 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
   Zap, Clock, Send, RefreshCw, CheckCircle2, AlertCircle,
   Loader2, Mail, ArrowRight, Users, Timer, Inbox, Settings,
-  BellRing, Shield, Activity
+  BellRing, Shield, Activity, SlidersHorizontal
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -17,6 +19,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 export default function AutomationPage() {
   const [, setLocation] = useLocation();
@@ -24,14 +29,17 @@ export default function AutomationPage() {
   const { data: followUpDue, isLoading: followUpLoading, refetch: refetchFollowUp } = trpc.batch.getFollowUpDue.useQuery();
   const { data: emailAccounts } = trpc.emailAccounts.list.useQuery();
   const { data: unreadCount } = trpc.notifications.unreadCount.useQuery();
+  const { data: autoSettings } = trpc.automation.getSettings.useQuery();
 
   const batchGenerate = trpc.batch.generateEmails.useMutation();
   const batchSend = trpc.batch.sendEmails.useMutation();
   const batchFollowUp = trpc.batch.generateFollowUps.useMutation();
+  const updateSettings = trpc.automation.updateSettings.useMutation();
   const utils = trpc.useUtils();
 
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [showFollowUpConfirm, setShowFollowUpConfirm] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [pendingDraftEmails, setPendingDraftEmails] = useState<Array<{
     emailId: number; leadId: number; to: string; subject: string; body: string;
     companyName: string | null; emailType: string;
@@ -84,11 +92,13 @@ export default function AutomationPage() {
 
   const handleConfirmSend = async () => {
     setShowSendConfirm(false);
-    const emailIds = pendingDraftEmails.map(d => d.emailId);
+    const emailIds = pendingDraftEmails.map(e => e.emailId);
     setBatchProgress({ type: 'send', total: emailIds.length, done: 0 });
     try {
-      const accountId = selectedAccountId ? parseInt(selectedAccountId) : undefined;
-      const result = await batchSend.mutateAsync({ emailIds, accountId });
+      const result = await batchSend.mutateAsync({
+        emailIds,
+        accountId: selectedAccountId ? Number(selectedAccountId) : undefined,
+      });
       setBatchProgress(null);
       toast.success(`批量发送完成：${result.sent}/${result.total} 封邮件已发送`);
       utils.leads.list.invalidate();
@@ -99,7 +109,7 @@ export default function AutomationPage() {
     }
   };
 
-  const handleBatchFollowUp = async () => {
+  const handleBatchFollowUp = () => {
     if (followUpLeads.length === 0) { toast.info("暂无需要跟进的客户"); return; }
     setShowFollowUpConfirm(true);
   };
@@ -112,21 +122,23 @@ export default function AutomationPage() {
       const result = await batchFollowUp.mutateAsync({ leadIds });
       setBatchProgress(null);
       toast.success(`跟进邮件生成完成：${result.generated}/${result.total} 封`);
-      refetchFollowUp();
       utils.leads.list.invalidate();
+      utils.batch.getFollowUpDue.invalidate();
     } catch (e: any) {
       setBatchProgress(null);
-      toast.error("跟进邮件生成失败: " + (e.message || "Unknown error"));
+      toast.error("生成跟进邮件失败: " + (e.message || "Unknown error"));
     }
   };
 
-  if (leadsLoading || followUpLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  const handleUpdateSetting = async (key: string, value: any) => {
+    try {
+      await updateSettings.mutateAsync({ [key]: value });
+      utils.automation.getSettings.invalidate();
+      toast.success("设置已更新");
+    } catch (e: any) {
+      toast.error("更新失败: " + (e.message || "Unknown error"));
+    }
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -141,11 +153,159 @@ export default function AutomationPage() {
             批量生成开发信、一键发送、自动跟进 — 让 AI 为你完成繁重工作
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setLocation("/email-settings")}>
-          <Settings className="h-4 w-4 mr-2" />
-          邮箱设置
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(!showSettings)}>
+            <SlidersHorizontal className="h-4 w-4 mr-2" />
+            自动化设置
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setLocation("/email-settings")}>
+            <Settings className="h-4 w-4 mr-2" />
+            邮箱设置
+          </Button>
+        </div>
       </div>
+
+      {/* Automation Settings Panel */}
+      {showSettings && autoSettings && (
+        <Card className="border-primary/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-primary" />
+              自动化配置
+            </CardTitle>
+            <CardDescription>自定义跟进间隔、通知偏好和发送策略</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Follow-up timing */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">跟进策略</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm">自动跟进间隔</Label>
+                  <Select
+                    value={String(autoSettings.followUpHours)}
+                    onValueChange={(v) => handleUpdateSetting("followUpHours", Number(v))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="24">24 小时</SelectItem>
+                      <SelectItem value="48">48 小时（推荐）</SelectItem>
+                      <SelectItem value="72">72 小时</SelectItem>
+                      <SelectItem value="96">96 小时</SelectItem>
+                      <SelectItem value="120">5 天</SelectItem>
+                      <SelectItem value="168">7 天</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">发送邮件后多久未回复触发跟进</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm">最大跟进轮数</Label>
+                  <Select
+                    value={String(autoSettings.maxFollowUpRounds)}
+                    onValueChange={(v) => handleUpdateSetting("maxFollowUpRounds", Number(v))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[3, 5, 7, 9, 12, 15].map(n => (
+                        <SelectItem key={n} value={String(n)}>{n} 轮{n === 9 ? "（推荐）" : ""}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">达到最大轮数后停止自动跟进</p>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Toggles */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">自动化开关</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">自动跟进检测</Label>
+                    <p className="text-[11px] text-muted-foreground">系统每30分钟检查是否有客户需要跟进</p>
+                  </div>
+                  <Switch
+                    checked={autoSettings.autoFollowUpEnabled}
+                    onCheckedChange={(v) => handleUpdateSetting("autoFollowUpEnabled", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">自动回信检测</Label>
+                    <p className="text-[11px] text-muted-foreground">通过 IMAP 每15分钟检查收件箱中的客户回信</p>
+                  </div>
+                  <Switch
+                    checked={autoSettings.replyCheckEnabled}
+                    onCheckedChange={(v) => handleUpdateSetting("replyCheckEnabled", v)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Notification preferences */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">通知偏好</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">回信通知</Label>
+                    <p className="text-[11px] text-muted-foreground">检测到客户回信时发送通知</p>
+                  </div>
+                  <Switch
+                    checked={autoSettings.notifyOnReply}
+                    onCheckedChange={(v) => handleUpdateSetting("notifyOnReply", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm">跟进到期通知</Label>
+                    <p className="text-[11px] text-muted-foreground">客户超时未回复时发送跟进提醒</p>
+                  </div>
+                  <Switch
+                    checked={autoSettings.notifyOnFollowUpDue}
+                    onCheckedChange={(v) => handleUpdateSetting("notifyOnFollowUpDue", v)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Send delay */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">发送策略</h4>
+              <div className="space-y-2">
+                <Label className="text-sm">批量发送间隔</Label>
+                <Select
+                  value={String(autoSettings.sendDelaySeconds)}
+                  onValueChange={(v) => handleUpdateSetting("sendDelaySeconds", Number(v))}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 秒</SelectItem>
+                    <SelectItem value="5">5 秒（推荐）</SelectItem>
+                    <SelectItem value="10">10 秒</SelectItem>
+                    <SelectItem value="15">15 秒</SelectItem>
+                    <SelectItem value="30">30 秒</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">每封邮件之间的发送间隔，防止被标记为垃圾邮件</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* System Status Panel */}
       <Card className="border-primary/20 bg-primary/5">
@@ -158,7 +318,7 @@ export default function AutomationPage() {
             <Separator orientation="vertical" className="h-4" />
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Activity className="h-3.5 w-3.5" />
-              <span>48小时跟进检测：每30分钟</span>
+              <span>跟进检测：每30分钟 · 间隔 {autoSettings?.followUpHours || 48}h</span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Shield className="h-3.5 w-3.5" />
@@ -219,7 +379,7 @@ export default function AutomationPage() {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   共 {batchProgress.total} 个客户，请耐心等待
                   {batchProgress.type === 'generate' && '（每个客户需要 AI 深度分析网站 + 生成个性化邮件）'}
-                  {batchProgress.type === 'send' && '（邮件间隔 3-5 秒防止被标记为垃圾邮件）'}
+                  {batchProgress.type === 'send' && `（邮件间隔 ${autoSettings?.sendDelaySeconds || 5} 秒防止被标记为垃圾邮件）`}
                 </p>
               </div>
             </div>
@@ -350,14 +510,14 @@ export default function AutomationPage() {
               </div>
               <div>
                 <CardTitle className="text-base">第三步：自动跟进</CardTitle>
-                <CardDescription className="text-xs">48小时无回复 → 系统自动提醒</CardDescription>
+                <CardDescription className="text-xs">{autoSettings?.followUpHours || 48}h 无回复 → 系统自动提醒</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="text-sm text-muted-foreground">
               {followUpLeads.length > 0 ? (
-                <span>有 <strong className="text-foreground">{followUpLeads.length}</strong> 个客户超过48小时未回复</span>
+                <span>有 <strong className="text-foreground">{followUpLeads.length}</strong> 个客户超过{autoSettings?.followUpHours || 48}小时未回复</span>
               ) : (
                 <span className="flex items-center gap-1.5">
                   <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -399,7 +559,7 @@ export default function AutomationPage() {
               { icon: Zap, label: "AI 分析", desc: "网站分析 + ICP + USP", color: "text-violet-500" },
               { icon: Mail, label: "生成邮件", desc: "个性化开发信", color: "text-amber-500" },
               { icon: Send, label: "确认发送", desc: "审核后一键发送", color: "text-emerald-500" },
-              { icon: Clock, label: "自动跟进", desc: "48h无回复自动提醒", color: "text-rose-500" },
+              { icon: Clock, label: "自动跟进", desc: `${autoSettings?.followUpHours || 48}h无回复自动提醒`, color: "text-rose-500" },
               { icon: Inbox, label: "回信检测", desc: "IMAP自动检测回信", color: "text-violet-500" },
             ].map((step, i) => (
               <div key={i} className="flex items-center gap-3 flex-1">
@@ -425,7 +585,7 @@ export default function AutomationPage() {
               <AlertCircle className="h-4 w-4 text-rose-500" />
               需要跟进的客户 ({followUpLeads.length})
             </CardTitle>
-            <CardDescription>以下客户已超过48小时未回复，建议生成跟进邮件后一键发送</CardDescription>
+            <CardDescription>以下客户已超过{autoSettings?.followUpHours || 48}小时未回复，建议生成跟进邮件后一键发送</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -499,7 +659,7 @@ export default function AutomationPage() {
           <DialogHeader>
             <DialogTitle>确认批量发送</DialogTitle>
             <DialogDescription>
-              即将发送 {pendingDraftEmails.length} 封邮件。发送后系统将自动开始48小时跟进倒计时，并持续检测客户回信。
+              即将发送 {pendingDraftEmails.length} 封邮件。发送后系统将自动开始{autoSettings?.followUpHours || 48}小时跟进倒计时，并持续检测客户回信。
             </DialogDescription>
           </DialogHeader>
 
@@ -552,7 +712,7 @@ export default function AutomationPage() {
           <DialogHeader>
             <DialogTitle>确认批量生成跟进信</DialogTitle>
             <DialogDescription>
-              将为 {followUpLeads.length} 个超过48小时未回复的客户生成跟进邮件。生成后需要再次确认才会发送。
+              将为 {followUpLeads.length} 个超过{autoSettings?.followUpHours || 48}小时未回复的客户生成跟进邮件。生成后需要再次确认才会发送。
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-60 overflow-y-auto space-y-2 my-2">

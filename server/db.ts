@@ -487,3 +487,54 @@ export async function getDraftEmailsForLeads(leadIds: number[], userId: number) 
 
   return results;
 }
+
+// ============================================================
+// AUTOMATION SETTINGS
+// ============================================================
+import { automationSettings } from "../drizzle/schema";
+
+export async function getAutomationSettings(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(automationSettings).where(eq(automationSettings.userId, userId)).limit(1);
+  return rows[0] || null;
+}
+
+export async function upsertAutomationSettings(userId: number, data: {
+  followUpHours?: number;
+  maxFollowUpRounds?: number;
+  autoFollowUpEnabled?: boolean;
+  replyCheckEnabled?: boolean;
+  notifyOnReply?: boolean;
+  notifyOnFollowUpDue?: boolean;
+  sendDelaySeconds?: number;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  const existing = await getAutomationSettings(userId);
+  if (existing) {
+    const updateSet: Record<string, unknown> = {};
+    if (data.followUpHours !== undefined) updateSet.followUpHours = data.followUpHours;
+    if (data.maxFollowUpRounds !== undefined) updateSet.maxFollowUpRounds = data.maxFollowUpRounds;
+    if (data.autoFollowUpEnabled !== undefined) updateSet.autoFollowUpEnabled = data.autoFollowUpEnabled;
+    if (data.replyCheckEnabled !== undefined) updateSet.replyCheckEnabled = data.replyCheckEnabled;
+    if (data.notifyOnReply !== undefined) updateSet.notifyOnReply = data.notifyOnReply;
+    if (data.notifyOnFollowUpDue !== undefined) updateSet.notifyOnFollowUpDue = data.notifyOnFollowUpDue;
+    if (data.sendDelaySeconds !== undefined) updateSet.sendDelaySeconds = data.sendDelaySeconds;
+    if (Object.keys(updateSet).length > 0) {
+      await db.update(automationSettings).set(updateSet).where(eq(automationSettings.userId, userId));
+    }
+  } else {
+    await db.insert(automationSettings).values({
+      userId,
+      followUpHours: data.followUpHours ?? 48,
+      maxFollowUpRounds: data.maxFollowUpRounds ?? 9,
+      autoFollowUpEnabled: data.autoFollowUpEnabled ?? true,
+      replyCheckEnabled: data.replyCheckEnabled ?? true,
+      notifyOnReply: data.notifyOnReply ?? true,
+      notifyOnFollowUpDue: data.notifyOnFollowUpDue ?? true,
+      sendDelaySeconds: data.sendDelaySeconds ?? 5,
+    });
+  }
+  return getAutomationSettings(userId);
+}

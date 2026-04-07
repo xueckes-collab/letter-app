@@ -337,6 +337,46 @@ function ThinkingCard({ title, cards }: { title: string; cards: Array<{ title: s
   );
 }
 
+// Status progression steps
+const EMAIL_STATUS_STEPS = [
+  { key: 'draft', label: '草稿', color: 'text-amber-400', bgActive: 'bg-amber-500', bgInactive: 'bg-muted-foreground/30' },
+  { key: 'sent', label: '已发送', color: 'text-blue-400', bgActive: 'bg-blue-500', bgInactive: 'bg-muted-foreground/30' },
+  { key: 'delivered', label: '已送达', color: 'text-emerald-400', bgActive: 'bg-emerald-500', bgInactive: 'bg-muted-foreground/30' },
+  { key: 'replied', label: '已回复', color: 'text-violet-400', bgActive: 'bg-violet-500', bgInactive: 'bg-muted-foreground/30' },
+] as const;
+
+function getStatusIndex(status?: string): number {
+  if (!status) return 0;
+  const map: Record<string, number> = { draft: 0, sent: 1, delivered: 2, replied: 3 };
+  return map[status] ?? 0;
+}
+
+function EmailStatusBar({ status }: { status?: string }) {
+  const currentIdx = getStatusIndex(status);
+  return (
+    <div className="flex items-center gap-1 w-full">
+      {EMAIL_STATUS_STEPS.map((step, i) => {
+        const isActive = i <= currentIdx;
+        const isCurrent = i === currentIdx;
+        return (
+          <div key={step.key} className="flex items-center gap-1 flex-1">
+            <div className="flex flex-col items-center flex-1">
+              <div className={`h-1.5 w-full rounded-full transition-colors ${
+                isActive ? step.bgActive : step.bgInactive
+              }`} />
+              <span className={`text-[10px] mt-1 transition-colors ${
+                isCurrent ? step.color + ' font-medium' : isActive ? 'text-muted-foreground' : 'text-muted-foreground/50'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerating, isSending }: {
   email: { id: number; subject: string; body: string; type: string; round: number; status?: string; sentAt?: string | null };
   leadEmail: string;
@@ -363,7 +403,7 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
     });
   };
 
-  const isSent = email.status === 'sent';
+  const isSent = email.status === 'sent' || email.status === 'delivered' || email.status === 'replied';
 
   return (
     <Card>
@@ -373,13 +413,6 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
             <Mail className="h-4 w-4 text-primary" />
             <CardTitle className="text-base">{typeLabels[email.type] || email.type}</CardTitle>
             {email.round > 0 && <Badge variant="secondary" className="text-xs">R{email.round}</Badge>}
-            {isSent ? (
-              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                <CheckCircle2 className="h-3 w-3 mr-1" />已发送
-              </Badge>
-            ) : email.status === 'draft' ? (
-              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/20">草稿</Badge>
-            ) : null}
             {email.sentAt && (
               <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Clock className="h-3 w-3" />
@@ -409,6 +442,10 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
               </>
             )}
           </div>
+        </div>
+        {/* Status progression bar */}
+        <div className="mt-2">
+          <EmailStatusBar status={email.status} />
         </div>
       </CardHeader>
       <CardContent className="space-y-3">

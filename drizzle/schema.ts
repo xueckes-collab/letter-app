@@ -254,3 +254,22 @@ export const emailAccounts = mysqlTable("email_accounts", {
 
 export type EmailAccount = typeof emailAccounts.$inferSelect;
 export type InsertEmailAccount = typeof emailAccounts.$inferInsert;
+
+// ============================================================
+// 13. AUTOMATION SETTINGS (per-user preferences)
+// ============================================================
+export const automationSettings = mysqlTable("automation_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  followUpHours: int("followUpHours").default(48).notNull(),
+  maxFollowUpRounds: int("maxFollowUpRounds").default(9).notNull(),
+  autoFollowUpEnabled: boolean("autoFollowUpEnabled").default(true).notNull(),
+  replyCheckEnabled: boolean("replyCheckEnabled").default(true).notNull(),
+  notifyOnReply: boolean("notifyOnReply").default(true).notNull(),
+  notifyOnFollowUpDue: boolean("notifyOnFollowUpDue").default(true).notNull(),
+  sendDelaySeconds: int("sendDelaySeconds").default(5).notNull(), // delay between batch emails
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AutomationSetting = typeof automationSettings.$inferSelect;
+export type InsertAutomationSetting = typeof automationSettings.$inferInsert;
