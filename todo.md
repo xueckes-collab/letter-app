@@ -96,3 +96,19 @@
 - [x] Frontend: Enhanced Leads list with email status indicators and filter counts
 - [x] Backend: Scheduler uses dynamic notification text instead of hardcoded 48h
 - [x] All 29 vitest tests passing
+
+## V4 自动跟进 + 用户反馈系统
+- [x] DB: automationSettings 表新增 autoSendFollowUp 字段（true=自动发送，false=生成后询问）
+- [x] DB: feedbacks 表（id, userId, content, rating, status, aiAnalysis, createdAt）
+- [x] Backend: scheduler 增强 - 自动生成跟进邮件内容（调用 LLM）
+- [x] Backend: scheduler 增强 - autoSendFollowUp=true 时自动发送，false 时创建待确认通知
+- [x] Backend: feedback.submit / feedback.list / feedback.analyze tRPC 路由
+- [x] Backend: AI 分析反馈可行性，有价值推送管理员通知，无价值自动归档
+- [x] Frontend: Automation 页面新增"自动发送跟进邮件"权限开关
+- [x] Frontend: 侧边栏新增"意见反馈"入口
+- [x] Frontend: 用户反馈页面（评分 + 文字 + 提交历史）
+- [x] Frontend: 管理后台新增反馈分析面板（查看 AI 分析结果、标记状态）
+
+## V4 补充（小缺口）
+- [x] Backend: feedback 路由命名已实现为 myList/adminList/adminDelete + 异步 AI 分析（无需独立 analyze 路由）
+- [x] Frontend/Admin: 管理后台反馈面板添加手动标记状态按鈕（valuable/archived）

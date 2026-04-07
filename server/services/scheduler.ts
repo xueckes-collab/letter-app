@@ -1,13 +1,17 @@
 /**
  * Server-side Scheduler
  * Runs periodic tasks:
- * 1. Check for leads needing 48-hour follow-up → create notifications
+ * 1. Check for leads needing follow-up → auto-generate follow-up emails, optionally auto-send
  * 2. Check for replies via IMAP → create notifications
  */
 import { getDb } from "../db";
-import { getAutomationSettings } from "../db";
-import { leads, leadStates, emailAccounts, notifications } from "../../drizzle/schema";
+import { getAutomationSettings, getLeadWithRelations, createEmailSequence, upsertLeadState, updateLeadStatus } from "../db";
+import { leads, leadStates, emailAccounts, notifications, emailSequences } from "../../drizzle/schema";
 import { eq, and, lte, isNotNull, sql } from "drizzle-orm";
+import { generateEmail } from "./llm-engine";
+import { getStrategyForRound } from "./follow-up-strategies";
+import { sendEmail } from "./email-sender";
+import { getSenderProfile } from "../db";
 
 const FOLLOW_UP_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
 const REPLY_CHECK_INTERVAL = 15 * 60 * 1000; // 15 minutes
@@ -70,6 +74,11 @@ async function checkUserFollowUpDue(userId: number) {
   const db = await getDb();
   if (!db) return;
 
+  // Get user automation settings
+  const settings = await getAutomationSettings(userId);
+  const autoSend = settings?.autoSendFollowUp ?? false;
+  const maxRounds = settings?.maxFollowUpRounds ?? 9;
+
   const now = new Date();
 
   const dueLeads = await db
@@ -97,55 +106,130 @@ async function checkUserFollowUpDue(userId: number) {
 
   if (dueLeads.length === 0) return;
 
-  // Check for existing unread follow-up notification to avoid duplicates
-  const existing = await db
-    .select({ id: notifications.id })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.userId, userId),
-        eq(notifications.type, "followup_due"),
-        eq(notifications.isRead, false)
-      )
-    )
-    .limit(1);
+  // Filter leads that haven't exceeded max rounds
+  const eligibleLeads = dueLeads.filter(l => l.round < maxRounds);
+  if (eligibleLeads.length === 0) return;
 
-  if (existing.length > 0) return;
+  // Build sender context for LLM
+  const profile = await getSenderProfile(userId);
+  const senderContext = profile
+    ? `Company: ${profile.companyName}\nProducts: ${profile.mainProducts}\nAdvantages: ${profile.coreAdvantages}`
+    : 'No sender profile configured.';
 
-  const leadNames = dueLeads
-    .map(l => l.companyName || l.email)
-    .slice(0, 5)
-    .join("、");
-  const moreText = dueLeads.length > 5 ? ` 等 ${dueLeads.length} 个客户` : "";
+  const generatedLeads: Array<{ leadId: number; emailId: number; companyName: string | null }> = [];
+  const failedLeads: Array<{ leadId: number; error: string }> = [];
 
-  await db.insert(notifications).values({
-    userId,
-    type: "followup_due",
-    title: `${dueLeads.length} 个客户需要跟进`,
-    message: `${leadNames}${moreText} 已超过跟进间隔未回复，建议发送跟进邮件。`,
-    actionUrl: "/automation",
-    isRead: false,
-  });
+  for (const lead of eligibleLeads) {
+    try {
+      // Check for existing unread followup_due notification for this lead to avoid duplicates
+      const existingNotif = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, userId),
+            eq(notifications.type, "followup_due"),
+            eq(notifications.isRead, false),
+            sql`${notifications.leadId} = ${lead.leadId}`
+          )
+        )
+        .limit(1);
 
-  // Update lead states
-  for (const lead of dueLeads) {
-    await db
-      .update(leadStates)
-      .set({
-        currentState: "followup_due",
-        nextAction: "Generate and send follow-up email",
-      })
-      .where(
-        and(eq(leadStates.userId, userId), eq(leadStates.leadId, lead.leadId))
-      );
+      if (existingNotif.length > 0) continue;
 
-    await db
-      .update(leads)
-      .set({ status: "followup_due", statusColor: "amber" })
-      .where(eq(leads.id, lead.leadId));
+      // Get full lead data for email generation
+      const leadData = await getLeadWithRelations(lead.leadId, userId);
+      if (!leadData) continue;
+
+      const nextRound = (lead.round || 0) + 1;
+      const strategy = getStrategyForRound(nextRound);
+
+      const previousEmails = leadData.emailSequences.map((e: any) => ({
+        subject: e.subject || '', body: e.body || '', type: e.emailType,
+      }));
+
+      // Auto-generate follow-up email via LLM
+      const emailResult = await generateEmail({
+        type: 'followup',
+        websiteAnalysis: (leadData.websiteAnalysis || {}) as Record<string, unknown>,
+        icpMatch: (leadData.icpMatch || {}) as Record<string, unknown>,
+        uspMatch: (leadData.uspMatch || {}) as Record<string, unknown>,
+        senderContext,
+        contactName: lead.contactName || undefined,
+        round: nextRound,
+        previousEmails,
+        followupStrategy: strategy ? (strategy as unknown as Record<string, unknown>) : undefined,
+      });
+
+      const emailId = await createEmailSequence({
+        userId, leadId: lead.leadId, emailType: 'followup',
+        subject: emailResult.subject, body: emailResult.body,
+        strategyType: strategy?.name || `Round ${nextRound}`, stageNumber: nextRound,
+        thinkingSummary: [
+          { title: `Auto-generated Round ${nextRound}`, items: [strategy?.description || '', emailResult.strategyNotes] },
+        ],
+        status: 'draft',
+      });
+
+      await upsertLeadState(lead.leadId, userId, {
+        currentState: autoSend ? 'email_sent' : 'waiting_user_send_followup',
+        currentRound: nextRound,
+        lastEmailType: 'followup',
+        nextAction: autoSend ? 'Follow-up auto-sent' : `Send round ${nextRound} follow-up email`,
+      });
+
+      if (autoSend) {
+        // Auto-send the email
+        const sendResult = await sendEmail(userId, emailId);
+        if (sendResult.success) {
+          await updateLeadStatus(lead.leadId, 'contacted', 'blue', 'not_checked');
+          console.log(`[Scheduler] Auto-sent follow-up R${nextRound} to ${lead.email}`);
+        } else {
+          // Send failed, revert to draft state
+          await upsertLeadState(lead.leadId, userId, {
+            currentState: 'waiting_user_send_followup',
+            nextAction: `Send round ${nextRound} follow-up email (auto-send failed)`,
+          });
+          await updateLeadStatus(lead.leadId, 'followup_drafted', 'amber', 'not_checked');
+          failedLeads.push({ leadId: lead.leadId, error: sendResult.error || 'Send failed' });
+        }
+      } else {
+        await updateLeadStatus(lead.leadId, 'followup_drafted', 'amber', 'not_checked');
+      }
+
+      generatedLeads.push({ leadId: lead.leadId, emailId, companyName: lead.companyName });
+    } catch (err: any) {
+      failedLeads.push({ leadId: lead.leadId, error: err.message?.substring(0, 100) || 'Unknown error' });
+      console.error(`[Scheduler] Failed to generate follow-up for lead ${lead.leadId}:`, err.message);
+    }
   }
 
-  console.log(`[Scheduler] Created follow-up notification for user ${userId}: ${dueLeads.length} leads due`);
+  if (generatedLeads.length === 0) return;
+
+  const leadNames = generatedLeads.map(l => l.companyName || `Lead #${l.leadId}`).slice(0, 5).join('、');
+  const moreText = generatedLeads.length > 5 ? ` 等 ${generatedLeads.length} 个客户` : '';
+
+  if (autoSend) {
+    await db.insert(notifications).values({
+      userId,
+      type: 'batch_complete',
+      title: `自动跟进已发送 ${generatedLeads.length} 封`,
+      message: `已自动生成并发送跟进邮件：${leadNames}${moreText}。${failedLeads.length > 0 ? `另有 ${failedLeads.length} 封发送失败。` : ''}`,
+      actionUrl: '/leads',
+      isRead: false,
+    });
+  } else {
+    await db.insert(notifications).values({
+      userId,
+      type: 'followup_due',
+      title: `${generatedLeads.length} 封跟进邮件已生成，等待发送`,
+      message: `已为 ${leadNames}${moreText} 自动生成跟进邮件，请前往自动化中心确认发送。`,
+      actionUrl: '/automation',
+      isRead: false,
+    });
+  }
+
+  console.log(`[Scheduler] Follow-up for user ${userId}: generated=${generatedLeads.length}, autoSent=${autoSend}, failed=${failedLeads.length}`);
 }
 
 // ─── Reply Detection via IMAP ───────────────────────────────

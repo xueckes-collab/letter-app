@@ -12,6 +12,7 @@ import LeadDetailPage from "./pages/LeadDetail";
 import AdminPage from "./pages/Admin";
 import AutomationPage from "./pages/Automation";
 import EmailSettingsPage from "./pages/EmailSettings";
+import FeedbackPage from "./pages/Feedback";
 
 function Router() {
   return (
@@ -23,6 +24,7 @@ function Router() {
         <Route path="/profile" component={ProfilePage} />
         <Route path="/automation" component={AutomationPage} />
         <Route path="/email-settings" component={EmailSettingsPage} />
+        <Route path="/feedback" component={FeedbackPage} />
         <Route path="/admin" component={AdminPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

@@ -268,8 +268,27 @@ export const automationSettings = mysqlTable("automation_settings", {
   notifyOnReply: boolean("notifyOnReply").default(true).notNull(),
   notifyOnFollowUpDue: boolean("notifyOnFollowUpDue").default(true).notNull(),
   sendDelaySeconds: int("sendDelaySeconds").default(5).notNull(), // delay between batch emails
+  autoSendFollowUp: boolean("autoSendFollowUp").default(false).notNull(), // true=auto send, false=notify user first
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type AutomationSetting = typeof automationSettings.$inferSelect;
 export type InsertAutomationSetting = typeof automationSettings.$inferInsert;
+
+// ============================================================
+// 14. USER FEEDBACKS
+// ============================================================
+export const feedbacks = mysqlTable("feedbacks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  rating: int("rating").notNull(), // 1-5
+  content: text("content").notNull(),
+  category: varchar("category", { length: 64 }).default("general"), // general | bug | feature | ux
+  status: mysqlEnum("status", ["pending", "analyzed", "valuable", "archived"]).default("pending").notNull(),
+  aiAnalysis: text("aiAnalysis"), // LLM analysis result
+  aiScore: int("aiScore"), // 0-100 value score from AI
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Feedback = typeof feedbacks.$inferSelect;
+export type InsertFeedback = typeof feedbacks.$inferInsert;

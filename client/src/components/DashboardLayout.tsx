@@ -22,7 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
-import { Mail, Users, UserCog, LogOut, PanelLeft, Shield, Sparkles, Bell, Zap, Settings } from "lucide-react";
+import { Mail, Users, UserCog, LogOut, PanelLeft, Shield, Sparkles, Bell, Zap, Settings, MessageSquarePlus } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -38,7 +38,8 @@ const menuItems = [
   { icon: Users, label: "客户管理", path: "/leads" },
   { icon: Zap, label: "自动化", path: "/automation" },
   { icon: UserCog, label: "发件人资料", path: "/profile" },
-  { icon: Settings, label: "邮箱设置", path: "/email-settings" },
+  { icon: Settings, label: "邮筱设置", path: "/email-settings" },
+  { icon: MessageSquarePlus, label: "意见反馈", path: "/feedback" },
 ];
 
 const adminMenuItems = [

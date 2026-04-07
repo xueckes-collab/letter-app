@@ -19,7 +19,11 @@ import {
   getDefaultEmailAccount, updateEmailAccount, deleteEmailAccount,
   getDraftEmailsForLeads,
   getAutomationSettings, upsertAutomationSettings,
+  createFeedback, getFeedbacksByUser, getAllFeedbacks,
+  updateFeedbackAnalysis, deleteFeedback,
 } from "./db";
+import { invokeLLM } from "./_core/llm";
+import { notifyOwner } from "./_core/notification";
 import { scrapeWebsite, formatScrapingResults } from "./services/scraper";
 import { analyzeWebsite, matchICP, matchUSP, generateEmail, analyzeReply } from "./services/llm-engine";
 import { getStrategyForRound } from "./services/follow-up-strategies";
@@ -761,9 +765,60 @@ export const appRouter = router({
         notifyOnReply: z.boolean().optional(),
         notifyOnFollowUpDue: z.boolean().optional(),
         sendDelaySeconds: z.number().min(1).max(60).optional(),
+        autoSendFollowUp: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return upsertAutomationSettings(ctx.user.id, input);
+      }),
+  }),
+
+  // ============================================================
+  // USER FEEDBACK
+  // ============================================================
+  feedback: router({
+    submit: protectedProcedure
+      .input(z.object({
+        rating: z.number().min(1).max(5),
+        content: z.string().min(1).max(2000),
+        category: z.enum(['general', 'bug', 'feature', 'ux']).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const fb = await createFeedback(ctx.user.id, input);
+        if (!fb) throw new Error('Failed to create feedback');
+
+        // Async AI analysis (don't block the response)
+        analyzeFeedbackAsync(fb.id, fb.content, fb.rating).catch(console.error);
+
+        return { success: true, id: fb.id };
+      }),
+
+    myList: protectedProcedure.query(async ({ ctx }) => {
+      return getFeedbacksByUser(ctx.user.id);
+    }),
+
+    adminList: adminProcedure.query(async () => {
+      return getAllFeedbacks();
+    }),
+
+    adminDelete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteFeedback(input.id);
+        return { success: true };
+      }),
+
+    adminUpdateStatus: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(['valuable', 'archived', 'analyzed']),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await (await import('./db')).getDb();
+        if (!db) throw new Error('DB unavailable');
+        const { feedbacks: fbTable } = await import('../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        await db.update(fbTable).set({ status: input.status }).where(eq(fbTable.id, input.id));
+        return { success: true };
       }),
   }),
 
@@ -776,5 +831,69 @@ export const appRouter = router({
     }),
   }),
 });
+
+// ─── Async feedback analysis helper ────────────────────────────
+async function analyzeFeedbackAsync(feedbackId: number, content: string, rating: number) {
+  try {
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a product manager analyzing user feedback for an AI-powered B2B outbound email platform. 
+Evaluate the feedback and return a JSON object with:
+- score: integer 0-100 (how valuable this feedback is for product improvement)
+- status: "valuable" (score>=60, actionable insight) or "archived" (score<60, spam/irrelevant/too vague)
+- analysis: 1-2 sentence summary in Chinese explaining the value and suggested action
+- category: "bug" | "feature" | "ux" | "general"
+
+Be strict: only mark as "valuable" if it contains specific, actionable product improvement insights.`,
+        },
+        {
+          role: 'user',
+          content: `Rating: ${rating}/5\nFeedback: ${content}`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'feedback_analysis',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              score: { type: 'integer' },
+              status: { type: 'string', enum: ['valuable', 'archived'] },
+              analysis: { type: 'string' },
+              category: { type: 'string', enum: ['bug', 'feature', 'ux', 'general'] },
+            },
+            required: ['score', 'status', 'analysis', 'category'],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const rawContent = response?.choices?.[0]?.message?.content;
+    const raw = typeof rawContent === 'string' ? rawContent : null;
+    if (!raw) return;
+    const result = JSON.parse(raw);
+
+    await updateFeedbackAnalysis(feedbackId, {
+      status: result.status,
+      aiAnalysis: result.analysis,
+      aiScore: result.score,
+    });
+
+    // Notify owner if valuable
+    if (result.status === 'valuable') {
+      await notifyOwner({
+        title: `有价值的用户反馈 (${result.score}分)`,
+        content: `用户评分: ${rating}/5\n内容: ${content.substring(0, 200)}\nAI分析: ${result.analysis}`,
+      });
+    }
+  } catch (err) {
+    console.error('[Feedback] AI analysis failed:', err);
+  }
+}
 
 export type AppRouter = typeof appRouter;

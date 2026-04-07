@@ -246,6 +246,28 @@ export default function AutomationPage() {
                     onCheckedChange={(v) => handleUpdateSetting("replyCheckEnabled", v)}
                   />
                 </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm font-medium">自动发送跟进邮件</Label>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600">
+                        {(autoSettings as any).autoSendFollowUp ? '已授权' : '需确认'}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {(autoSettings as any).autoSendFollowUp
+                        ? '⚡ 系统将在跟进到期时自动生成并发送邮件，无需人工确认'
+                        : '🔔 跟进到期时系统自动生成草稿，需要您在此页面确认后发送'}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={(autoSettings as any).autoSendFollowUp ?? false}
+                    onCheckedChange={(v) => handleUpdateSetting("autoSendFollowUp", v)}
+                  />
+                </div>
               </div>
             </div>
 

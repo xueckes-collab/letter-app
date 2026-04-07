@@ -508,6 +508,7 @@ export async function upsertAutomationSettings(userId: number, data: {
   notifyOnReply?: boolean;
   notifyOnFollowUpDue?: boolean;
   sendDelaySeconds?: number;
+  autoSendFollowUp?: boolean;
 }) {
   const db = await getDb();
   if (!db) return null;
@@ -521,6 +522,7 @@ export async function upsertAutomationSettings(userId: number, data: {
     if (data.notifyOnReply !== undefined) updateSet.notifyOnReply = data.notifyOnReply;
     if (data.notifyOnFollowUpDue !== undefined) updateSet.notifyOnFollowUpDue = data.notifyOnFollowUpDue;
     if (data.sendDelaySeconds !== undefined) updateSet.sendDelaySeconds = data.sendDelaySeconds;
+    if (data.autoSendFollowUp !== undefined) updateSet.autoSendFollowUp = data.autoSendFollowUp;
     if (Object.keys(updateSet).length > 0) {
       await db.update(automationSettings).set(updateSet).where(eq(automationSettings.userId, userId));
     }
@@ -534,7 +536,66 @@ export async function upsertAutomationSettings(userId: number, data: {
       notifyOnReply: data.notifyOnReply ?? true,
       notifyOnFollowUpDue: data.notifyOnFollowUpDue ?? true,
       sendDelaySeconds: data.sendDelaySeconds ?? 5,
+      autoSendFollowUp: data.autoSendFollowUp ?? false,
     });
   }
   return getAutomationSettings(userId);
+}
+
+// ============================================================
+// FEEDBACKS
+// ============================================================
+import { feedbacks } from "../drizzle/schema";
+
+export async function createFeedback(userId: number, data: {
+  rating: number;
+  content: string;
+  category?: string;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  const [result] = await db.insert(feedbacks).values({
+    userId,
+    rating: data.rating,
+    content: data.content,
+    category: data.category || 'general',
+    status: 'pending',
+  });
+  const id = (result as any).insertId;
+  const rows = await db.select().from(feedbacks).where(eq(feedbacks.id, id)).limit(1);
+  return rows[0] || null;
+}
+
+export async function getFeedbacksByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(feedbacks).where(eq(feedbacks.userId, userId)).orderBy(feedbacks.createdAt);
+}
+
+export async function getAllFeedbacks() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(feedbacks).orderBy(feedbacks.createdAt);
+}
+
+export async function updateFeedbackAnalysis(id: number, data: {
+  status: 'analyzed' | 'valuable' | 'archived';
+  aiAnalysis: string;
+  aiScore: number;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(feedbacks).set({
+    status: data.status,
+    aiAnalysis: data.aiAnalysis,
+    aiScore: data.aiScore,
+  }).where(eq(feedbacks.id, id));
+  const rows = await db.select().from(feedbacks).where(eq(feedbacks.id, id)).limit(1);
+  return rows[0] || null;
+}
+
+export async function deleteFeedback(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(feedbacks).where(eq(feedbacks.id, id));
 }
