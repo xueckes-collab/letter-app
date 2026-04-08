@@ -1,4 +1,5 @@
 import { COOKIE_NAME } from "@shared/const";
+import { aiPromptSettings } from "../drizzle/schema";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
@@ -20,7 +21,7 @@ import {
   getDraftEmailsForLeads,
   getAutomationSettings, upsertAutomationSettings,
   createFeedback, getFeedbacksByUser, getAllFeedbacks,
-  updateFeedbackAnalysis, deleteFeedback,
+  updateFeedbackAnalysis, deleteFeedback, getDb,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -137,6 +138,8 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+
+    googleEnabled: publicProcedure.query(() => ({ enabled: Boolean(process.env.GOOGLE_CLIENT_ID) })),
  }),
 
   // ============================================================
@@ -168,13 +171,15 @@ export const appRouter = router({
       .input(z.object({
         fileName: z.string(),
         mimeType: z.string().optional(),
-        fileSize: z.number().optional(),
+        fileSize: z.number().max(100 * 1024 * 1024).optional(),
         fileBase64: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
         const profile = await getSenderProfile(ctx.user.id);
         if (!profile) throw new Error("Please complete your profile first");
+        if ((input.fileSize ?? 0) > 100 * 1024 * 1024) throw new Error("文件大小不能超过 100MB");
         const buffer = Buffer.from(input.fileBase64, 'base64');
+        if (buffer.byteLength > 100 * 1024 * 1024) throw new Error("文件大小不能超过 100MB");
         const fileKey = `sender-assets/${ctx.user.id}/${nanoid()}-${input.fileName}`;
         const { url } = await storagePut(fileKey, buffer, input.mimeType || 'application/octet-stream');
 
@@ -278,11 +283,15 @@ export const appRouter = router({
       }),
 
     bulkImport: protectedProcedure
-      .input(z.object({ rows: z.string() }))
+      .input(z.object({
+        rows: z.string(),
+        autoGenerate: z.boolean().optional().default(true),
+      }))
       .mutation(async ({ ctx, input }) => {
         const lines = input.rows.split('\n').filter(l => l.trim());
         let successCount = 0;
         let failedCount = 0;
+        let generatedCount = 0;
         const batchId = nanoid(8);
         const importedLeadIds: number[] = [];
 
@@ -300,9 +309,18 @@ export const appRouter = router({
             });
             importedLeadIds.push(leadId);
             successCount++;
+
+            if (input.autoGenerate) {
+              try {
+                await processLeadPipeline(leadId, ctx.user.id, email, website, contactName || null);
+                generatedCount++;
+              } catch (e) {
+                console.warn('[Bulk Import] auto generate failed for lead', leadId, e);
+              }
+            }
           } catch { failedCount++; }
         }
-        return { successCount, failedCount, batchId, importedLeadIds };
+        return { successCount, failedCount, generatedCount, batchId, importedLeadIds };
       }),
   }),
 
@@ -352,7 +370,6 @@ export const appRouter = router({
         accountId: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        // Check if user has email account configured
         const account = input.accountId
           ? await getEmailAccountById(input.accountId, ctx.user.id)
           : await getDefaultEmailAccount(ctx.user.id);
@@ -826,14 +843,21 @@ export const appRouter = router({
   automation: router({
     getSettings: protectedProcedure.query(async ({ ctx }) => {
       const settings = await getAutomationSettings(ctx.user.id);
-      return settings || {
-        followUpHours: 48,
-        maxFollowUpRounds: 9,
-        autoFollowUpEnabled: true,
-        replyCheckEnabled: true,
-        notifyOnReply: true,
-        notifyOnFollowUpDue: true,
-        sendDelaySeconds: 5,
+      if (!settings) {
+        return {
+          followUpHours: 48,
+          maxFollowUpRounds: 9,
+          autoFollowUpEnabled: true,
+          replyCheckEnabled: true,
+          notifyOnReply: true,
+          notifyOnFollowUpDue: true,
+          sendDelaySeconds: 180,
+          autoSendFollowUp: false,
+        };
+      }
+      return {
+        ...settings,
+        sendDelaySeconds: Math.max(180, settings.sendDelaySeconds ?? 180),
       };
     }),
 
@@ -845,7 +869,7 @@ export const appRouter = router({
         replyCheckEnabled: z.boolean().optional(),
         notifyOnReply: z.boolean().optional(),
         notifyOnFollowUpDue: z.boolean().optional(),
-        sendDelaySeconds: z.number().min(1).max(300).optional(),
+        sendDelaySeconds: z.number().min(180).max(1800).optional(),
         autoSendFollowUp: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -915,8 +939,8 @@ export const appRouter = router({
     getAiPrompt: adminProcedure
       .input(z.object({ promptKey: z.string() }))
       .query(async ({ input }) => {
-        const { db } = await import("./db");
-        const { aiPromptSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error('DB unavailable');
         const { eq } = await import("drizzle-orm");
         const result = await db.select().from(aiPromptSettings).where(eq(aiPromptSettings.promptKey, input.promptKey)).limit(1);
         return result[0] || { promptKey: input.promptKey, promptText: '', updatedAt: null };
@@ -925,8 +949,8 @@ export const appRouter = router({
     updateAiPrompt: adminProcedure
       .input(z.object({ promptKey: z.string(), promptText: z.string() }))
       .mutation(async ({ input }) => {
-        const { db } = await import("./db");
-        const { aiPromptSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error('DB unavailable');
         const { eq } = await import("drizzle-orm");
         const existing = await db.select().from(aiPromptSettings).where(eq(aiPromptSettings.promptKey, input.promptKey)).limit(1);
         if (existing.length > 0) {
@@ -938,8 +962,8 @@ export const appRouter = router({
       }),
 
     listAiPrompts: adminProcedure.query(async () => {
-      const { db } = await import("./db");
-      const { aiPromptSettings } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) throw new Error('DB unavailable');
       return await db.select().from(aiPromptSettings);
     }),
   }),

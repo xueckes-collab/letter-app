@@ -311,18 +311,19 @@ export default function AutomationPage() {
                   value={String(autoSettings.sendDelaySeconds)}
                   onValueChange={(v) => handleUpdateSetting("sendDelaySeconds", Number(v))}
                 >
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-56">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="3">3 秒</SelectItem>
-                    <SelectItem value="5">5 秒（推荐）</SelectItem>
-                    <SelectItem value="10">10 秒</SelectItem>
-                    <SelectItem value="15">15 秒</SelectItem>
-                    <SelectItem value="30">30 秒</SelectItem>
+                    <SelectItem value="180">3 分钟</SelectItem>
+                    <SelectItem value="240">4 分钟</SelectItem>
+                    <SelectItem value="300">5 分钟（推荐）</SelectItem>
+                    <SelectItem value="600">10 分钟</SelectItem>
+                    <SelectItem value="900">15 分钟</SelectItem>
+                    <SelectItem value="1800">30 分钟</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">每封邮件之间的发送间隔，防止被标记为垃圾邮件</p>
+                <p className="text-[11px] text-muted-foreground">每封邮件之间的发送间隔，最短为 3 分钟</p>
               </div>
             </div>
           </CardContent>

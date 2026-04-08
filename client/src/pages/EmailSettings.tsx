@@ -69,7 +69,7 @@ export default function EmailSettingsPage() {
   const [fontFamily, setFontFamily] = useState('Arial, sans-serif');
   const [signatureSaving, setSignatureSaving] = useState(false);
 
-  const emailSettings = trpc.email.getEmailSettings.useQuery(undefined, {
+  const emailSettings = trpc.profile.getEmailSettings.useQuery(undefined, {
     onSuccess: (data: any) => {
       if (data) {
         setSignature(data.signature || '');
@@ -79,7 +79,7 @@ export default function EmailSettingsPage() {
     },
   });
 
-  const updateEmailSettingsMutation = trpc.email.updateEmailSettings.useMutation({
+  const updateEmailSettingsMutation = trpc.profile.updateEmailSettings.useMutation({
     onSuccess: () => {
       toast.success('邮件格式设置已保存');
       setSignatureSaving(false);

@@ -7,10 +7,11 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
   Loader2, Shield, Users, MessageSquarePlus, Star, Sparkles,
-  Trash2, CheckCircle2, Archive, AlertCircle
+  Trash2, CheckCircle2, Archive, AlertCircle, Wand2
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: "待分析", color: "text-muted-foreground", icon: Loader2 },
@@ -29,8 +30,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function AdminPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState<"users" | "feedback">("feedback");
+  const [activeTab, setActiveTab] = useState<"users" | "feedback" | "prompts">("feedback");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [selectedPromptKey, setSelectedPromptKey] = useState("email.warm");
+  const [promptText, setPromptText] = useState("");
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -44,6 +47,22 @@ export default function AdminPage() {
 
   const { data: feedbacks, isLoading: feedbacksLoading, refetch: refetchFeedbacks } = trpc.feedback.adminList.useQuery(undefined, {
     enabled: user?.role === 'admin',
+  });
+  const { data: prompts, refetch: refetchPrompts } = trpc.admin.listAiPrompts.useQuery(undefined, {
+    enabled: user?.role === 'admin',
+  });
+
+  useEffect(() => {
+    const matched = prompts?.find((item: any) => item.promptKey === selectedPromptKey);
+    setPromptText(matched?.promptText || '');
+  }, [prompts, selectedPromptKey]);
+
+  const savePrompt = trpc.admin.updateAiPrompt.useMutation({
+    onSuccess: () => {
+      toast.success("提示词已保存");
+      refetchPrompts();
+    },
+    onError: (e) => toast.error("保存失败：" + e.message),
   });
 
   const deleteFeedback = trpc.feedback.adminDelete.useMutation({
@@ -108,6 +127,17 @@ export default function AdminPage() {
         >
           <Users className="h-4 w-4" />
           用户列表
+        </button>
+        <button
+          onClick={() => setActiveTab("prompts")}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === "prompts"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Wand2 className="h-4 w-4" />
+          AI 提示词
         </button>
       </div>
 
@@ -241,6 +271,53 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === "prompts" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-primary" />
+              邮件 AI 提示词管理
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { key: 'email.warm', label: '首封开发信' },
+                { key: 'email.followup', label: '跟进邮件' },
+                { key: 'email.reply', label: '回复邮件' },
+              ].map((item) => (
+                <Button
+                  key={item.key}
+                  variant={selectedPromptKey === item.key ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelectedPromptKey(item.key)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+
+            <Textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              rows={16}
+              placeholder="输入管理员提示词，用于指导 AI 邮件生成风格和策略"
+              className="font-mono text-sm"
+            />
+
+            <div className="flex justify-end">
+              <Button
+                onClick={() => savePrompt.mutate({ promptKey: selectedPromptKey, promptText })}
+                disabled={savePrompt.isPending}
+              >
+                {savePrompt.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                保存提示词
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Users Panel */}

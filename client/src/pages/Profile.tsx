@@ -223,7 +223,7 @@ export default function ProfilePage() {
               ) : (
                 <div className="text-center">
                   <FileUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">点击上传文件（PDF、图片等，最大 10MB）</p>
+                  <p className="text-sm text-muted-foreground">点击上传文件（PDF、图片等，最大 100MB）</p>
                 </div>
               )}
             </Label>

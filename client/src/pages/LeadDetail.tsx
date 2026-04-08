@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +11,7 @@ import { toast } from "sonner";
 import {
   Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSquare,
   ChevronDown, ChevronUp, Copy, Check, Globe, Building2,
-  Brain, SkipForward, CheckCircle2, Clock
+  Brain, SkipForward, CheckCircle2, Clock, Pencil
 } from "lucide-react";
 import {
   Dialog,
@@ -387,6 +388,18 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
   isSending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftSubject, setDraftSubject] = useState(email.subject);
+  const [draftBody, setDraftBody] = useState(email.body);
+  const utils = trpc.useUtils();
+  const updateEmailContent = trpc.auth.updateEmailContent.useMutation({
+    onSuccess: () => {
+      toast.success('邮件内容已保存');
+      setIsEditing(false);
+      utils.workflow.loadLead.invalidate({ leadId });
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const typeLabels: Record<string, string> = {
     warm: '首封开发信',
@@ -428,6 +441,17 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
               <>
                 <Button
                   variant="ghost" size="icon" className="h-8 w-8"
+                  onClick={() => {
+                    setDraftSubject(email.subject);
+                    setDraftBody(email.body);
+                    setIsEditing(v => !v);
+                  }}
+                  disabled={updateEmailContent.isPending}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon" className="h-8 w-8"
                   onClick={onRegenerate} disabled={isRegenerating}
                 >
                   <RefreshCw className={`h-4 w-4 ${isRegenerating ? 'animate-spin' : ''}`} />
@@ -451,13 +475,35 @@ function EmailCard({ email, leadEmail, leadId, onRegenerate, onSend, isRegenerat
       <CardContent className="space-y-3">
         <div>
           <p className="text-xs text-muted-foreground mb-1">收件人: {leadEmail} | 主题</p>
-          <p className="text-sm font-medium">{email.subject}</p>
+          {isEditing ? (
+            <Input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} />
+          ) : (
+            <p className="text-sm font-medium">{email.subject}</p>
+          )}
         </div>
         <Separator />
         <div>
           <p className="text-xs text-muted-foreground mb-1">正文</p>
-          <div className="text-sm whitespace-pre-wrap leading-relaxed">{email.body}</div>
+          {isEditing ? (
+            <Textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} rows={10} className="leading-relaxed" />
+          ) : (
+            <div className="text-sm whitespace-pre-wrap leading-relaxed">{email.body}</div>
+          )}
         </div>
+        {isEditing && (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setIsEditing(false); setDraftSubject(email.subject); setDraftBody(email.body); }}>
+              取消
+            </Button>
+            <Button
+              onClick={() => updateEmailContent.mutate({ emailId: email.id, subject: draftSubject, body: draftBody })}
+              disabled={updateEmailContent.isPending || !draftSubject.trim() || !draftBody.trim()}
+            >
+              {updateEmailContent.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              保存修改
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

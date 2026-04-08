@@ -5,6 +5,7 @@ export const ENV = {
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   snovioClientId: process.env.SNOVIO_CLIENT_ID ?? "",
   snovioClientSecret: process.env.SNOVIO_CLIENT_SECRET ?? "",
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   // S3-compatible storage (Cloudflare R2 or AWS S3)
   s3Endpoint: process.env.S3_ENDPOINT ?? "",
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",

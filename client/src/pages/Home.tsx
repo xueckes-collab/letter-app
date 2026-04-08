@@ -279,7 +279,7 @@ function BulkImport() {
 
   const bulkImport = trpc.leads.bulkImport.useMutation({
     onSuccess: (data) => {
-      toast.success(`批量导入完成：成功 ${data.successCount} 条，失败 ${data.failedCount} 条`);
+      toast.success(`批量导入完成：成功 ${data.successCount} 条，失败 ${data.failedCount} 条${data.generatedCount ? `，并自动生成 ${data.generatedCount} 封开发信` : ''}`);
       setBulkText('');
       setFileInfo(null);
       utils.leads.list.invalidate();
@@ -384,7 +384,7 @@ function BulkImport() {
           onSubmit={(e) => {
             e.preventDefault();
             if (!bulkText.trim()) { toast.error('请输入或上传导入数据'); return; }
-            bulkImport.mutate({ rows: bulkText });
+            bulkImport.mutate({ rows: bulkText, autoGenerate: true });
           }}
           className="space-y-4"
         >

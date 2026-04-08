@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
+import { GOOGLE_CLIENT_ID } from "@/const";
 
 export default function LoginPage() {
   const [, navigate] = useLocation();
@@ -19,6 +20,46 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const utils = trpc.useUtils();
+  const { data: googleEnabled } = trpc.auth.googleEnabled.useQuery();
+
+  useEffect(() => {
+    if (!googleEnabled?.enabled || !GOOGLE_CLIENT_ID || typeof window === 'undefined') return;
+
+    const existingScript = document.getElementById('google-identity-script') as HTMLScriptElement | null;
+
+    const initialize = () => {
+      const google = (window as any).google;
+      const slot = document.getElementById('google-signin-slot');
+      if (!google?.accounts?.id || !slot) return;
+      slot.innerHTML = '';
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response: any) => {
+          if (response?.credential) handleGoogleLogin(response.credential);
+        },
+      });
+      google.accounts.id.renderButton(slot, {
+        theme: 'outline',
+        size: 'large',
+        width: 320,
+        text: 'signin_with',
+        shape: 'pill',
+      });
+    };
+
+    if (existingScript) {
+      if ((window as any).google?.accounts?.id) initialize();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'google-identity-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = initialize;
+    document.head.appendChild(script);
+  }, [googleEnabled?.enabled]);
 
   const getNextPath = () => {
     const params = new URLSearchParams(window.location.search);
@@ -75,6 +116,30 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleLogin = async (credential: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ credential }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Google login failed");
+        return;
+      }
+      await utils.auth.me.invalidate();
+      navigate(getNextPath());
+    } catch {
+      setError("Google login failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
@@ -93,6 +158,12 @@ export default function LoginPage() {
               <Alert variant="destructive" className="mb-4">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
+            )}
+            {googleEnabled?.enabled && GOOGLE_CLIENT_ID && (
+              <div className="mb-4 space-y-3">
+                <div id="google-signin-slot" className="flex justify-center" />
+                <p className="text-center text-xs text-muted-foreground">支持谷歌一键登录</p>
+              </div>
             )}
             <Tabs defaultValue="login">
               <TabsList className="grid w-full grid-cols-2 mb-6">

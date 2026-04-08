@@ -4,7 +4,7 @@
  */
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
-import { getDb } from "../db";
+import { getDb, getDefaultEmailAccount, getSenderProfile, getAutomationSettings } from "../db";
 import { emailAccounts, emailSequences, leadStates, leads, notifications } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { getSnovioToken } from "./snovio";
@@ -26,6 +26,24 @@ export interface SendResult {
   messageId?: string;
   error?: string;
   provider: string;
+}
+
+function formatEmailHtml(body: string, signature?: string | null, fontSize = 14, fontFamily = 'Arial, sans-serif') {
+  const escapeHtml = (value: string) => value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  const main = escapeHtml(body).replace(/\n/g, "<br />");
+  const sig = signature?.trim() ? `<br /><br />${escapeHtml(signature.trim()).replace(/\n/g, "<br />")}` : "";
+
+  return `<div style="font-size:${fontSize}px;font-family:${fontFamily};line-height:1.65;color:#111827;">${main}${sig}</div>`;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ─── SMTP Sender ─────────────────────────────────────────────
@@ -251,6 +269,14 @@ export async function sendEmail(
   // Send based on provider
   let result: SendResult;
 
+  const senderProfile = await getSenderProfile(userId);
+  const htmlBody = formatEmailHtml(
+    email.body,
+    senderProfile?.emailSignature,
+    senderProfile?.emailFontSize || 14,
+    senderProfile?.emailFontFamily || 'Arial, sans-serif'
+  );
+
   if (account.provider === "smtp" && account.smtpHost && account.smtpPort && account.smtpUser && account.smtpPass) {
     result = await sendViaSMTP(
       {
@@ -265,7 +291,8 @@ export async function sendEmail(
       {
         to: lead.email,
         subject: email.subject,
-        html: email.body,
+        html: htmlBody,
+        text: `${email.body}${senderProfile?.emailSignature ? `\n\n${senderProfile.emailSignature}` : ''}`,
         inReplyTo: email.gmailMessageId || undefined,
       }
     );
@@ -286,7 +313,8 @@ export async function sendEmail(
       {
         to: lead.email,
         subject: email.subject,
-        html: email.body,
+        html: htmlBody,
+        text: `${email.body}${senderProfile?.emailSignature ? `\n\n${senderProfile.emailSignature}` : ''}`,
         inReplyTo: email.gmailMessageId || undefined,
       }
     );
@@ -329,11 +357,12 @@ export async function batchSendEmails(
   const results: SendResult[] = [];
   let sent = 0;
   let failed = 0;
+  const settings = await getAutomationSettings(userId);
+  const delaySeconds = Math.max(180, settings?.sendDelaySeconds ?? 180);
 
   for (const emailId of emailIds) {
-    // Rate limit: wait 3-5 seconds between emails to avoid spam flags
     if (results.length > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 3000 + Math.random() * 2000));
+      await wait(delaySeconds * 1000);
     }
 
     const result = await sendEmail(userId, emailId, accountId);

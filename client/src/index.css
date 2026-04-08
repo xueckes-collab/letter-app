@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -43,6 +44,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --radius: 0.625rem;
   /* Dark theme as default for B2B SaaS */
   --background: oklch(0.13 0.01 270);
@@ -79,13 +81,57 @@
   --sidebar-ring: oklch(0.72 0.19 50);
 }
 
+:root:not(.dark) {
+  color-scheme: light;
+  --background: oklch(0.98 0.004 95);
+  --foreground: oklch(0.21 0.02 270);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 270);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 270);
+  --primary: oklch(0.62 0.18 45);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.94 0.01 95);
+  --secondary-foreground: oklch(0.28 0.015 270);
+  --muted: oklch(0.95 0.006 95);
+  --muted-foreground: oklch(0.52 0.015 270);
+  --accent: oklch(0.93 0.02 85);
+  --accent-foreground: oklch(0.25 0.02 270);
+  --destructive: oklch(0.62 0.22 24);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.88 0.01 95);
+  --input: oklch(0.9 0.01 95);
+  --ring: oklch(0.62 0.18 45);
+  --chart-1: oklch(0.62 0.18 45);
+  --chart-2: oklch(0.62 0.14 165);
+  --chart-3: oklch(0.58 0.19 255);
+  --chart-4: oklch(0.7 0.16 320);
+  --chart-5: oklch(0.74 0.12 110);
+  --sidebar: oklch(0.965 0.006 95);
+  --sidebar-foreground: oklch(0.26 0.02 270);
+  --sidebar-primary: oklch(0.62 0.18 45);
+  --sidebar-primary-foreground: oklch(0.98 0.01 90);
+  --sidebar-accent: oklch(0.93 0.02 85);
+  --sidebar-accent-foreground: oklch(0.25 0.02 270);
+  --sidebar-border: oklch(0.88 0.01 95);
+  --sidebar-ring: oklch(0.62 0.18 45);
+}
+
+.dark {
+  color-scheme: dark;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    background-image:
+      radial-gradient(circle at top left, color-mix(in oklab, var(--primary) 12%, transparent), transparent 28%),
+      radial-gradient(circle at bottom right, color-mix(in oklab, var(--chart-3) 10%, transparent), transparent 24%);
+    background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

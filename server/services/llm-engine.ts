@@ -4,6 +4,7 @@
  * with structured JSON output for reliable, intelligent results.
  */
 import { invokeGPT, gptJSON } from "./gpt";
+import { getAiPromptSetting } from "../db";
 
 // ============================================================
 // RESULT TYPE INTERFACES
@@ -217,8 +218,10 @@ export async function generateEmail(params: {
   followupStrategy?: Record<string, unknown>;
 }) {
   const { type, websiteAnalysis, icpMatch, uspMatch, senderContext, contactName, round, previousEmails, replyContent, replyAnalysis, followupStrategy } = params;
+  const promptKey = type === 'warm' ? 'email.warm' : type === 'followup' ? 'email.followup' : 'email.reply';
+  const promptOverride = await getAiPromptSetting(promptKey);
 
-  let systemPrompt = `You are a world-class B2B cold email copywriter who has written thousands of high-converting outreach emails for international trade companies.
+  let systemPrompt = promptOverride?.promptText?.trim() || `You are a world-class B2B cold email copywriter who has written thousands of high-converting outreach emails for international trade companies.
 
 Your writing philosophy:
 - Every sentence must earn its place — no filler, no fluff

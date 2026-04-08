@@ -5,6 +5,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
@@ -20,9 +23,10 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
-import { Mail, Users, UserCog, LogOut, PanelLeft, Shield, Sparkles, Bell, Zap, Settings, MessageSquarePlus } from "lucide-react";
+import { Mail, Users, UserCog, LogOut, PanelLeft, Shield, Sparkles, Bell, Zap, Settings, MessageSquarePlus, Monitor, Moon, Sun } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -130,6 +134,27 @@ function NotificationBell() {
   );
 }
 
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="relative h-9 w-9 flex items-center justify-center hover:bg-accent rounded-lg transition-colors">
+          {theme === "dark" ? <Moon className="h-4 w-4 text-muted-foreground" /> : theme === "light" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Monitor className="h-4 w-4 text-muted-foreground" />}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}>
+          <DropdownMenuRadioItem value="light"><Sun className="h-4 w-4" />浅色</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark"><Moon className="h-4 w-4" />深色</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="system"><Monitor className="h-4 w-4" />跟随系统</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -197,6 +222,7 @@ type DashboardLayoutContentProps = {
 
 function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -284,6 +310,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
 
           <SidebarFooter className="p-3">
             <div className="flex items-center gap-1 mb-2 group-data-[collapsible=icon]:justify-center">
+              <ThemeSwitcher />
               <NotificationBell />
             </div>
             <DropdownMenu>
@@ -301,6 +328,14 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">主题</div>
+                <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as "light" | "dark" | "system")}>
+                  <DropdownMenuRadioItem value="light">浅色</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark">深色</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system">跟随系统</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>退出登录</span>
@@ -323,7 +358,10 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <span className="tracking-tight text-foreground">{activeMenuItem?.label ?? "Menu"}</span>
             </div>
-            <NotificationBell />
+            <div className="flex items-center gap-1">
+              <ThemeSwitcher />
+              <NotificationBell />
+            </div>
           </div>
         )}
         <main className="flex-1 p-4">{children}</main>

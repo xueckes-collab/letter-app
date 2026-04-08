@@ -11,6 +11,7 @@ import {
   emailSequences, InsertEmailSequence,
   replyAnalyses, InsertReplyAnalysis,
   leadStates, InsertLeadState,
+  aiPromptSettings,
 } from "../drizzle/schema";
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -55,6 +56,47 @@ export async function createUser(data: { email: string; passwordHash: string; na
   });
   const user = await getUserByEmail(data.email);
   if (!user) throw new Error("Failed to create user");
+  return user;
+}
+
+export async function createOrUpdateGoogleUser(data: { openId: string; email: string; name?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existingByOpenId = await getUserByOpenId(data.openId);
+  if (existingByOpenId) {
+    await db.update(users).set({
+      email: data.email,
+      name: data.name ?? existingByOpenId.name,
+      loginMethod: 'google',
+      lastSignedIn: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(users.id, existingByOpenId.id));
+    return (await getUserById(existingByOpenId.id))!;
+  }
+
+  const existingByEmail = await getUserByEmail(data.email);
+  if (existingByEmail) {
+    await db.update(users).set({
+      openId: data.openId,
+      name: data.name ?? existingByEmail.name,
+      loginMethod: 'google',
+      lastSignedIn: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(users.id, existingByEmail.id));
+    return (await getUserById(existingByEmail.id))!;
+  }
+
+  await db.insert(users).values({
+    openId: data.openId,
+    email: data.email,
+    name: data.name ?? data.email.split('@')[0],
+    loginMethod: 'google',
+    lastSignedIn: new Date(),
+  });
+
+  const user = await getUserByEmail(data.email);
+  if (!user) throw new Error("Failed to create Google user");
   return user;
 }
 
@@ -381,6 +423,13 @@ export async function getAllUsers() {
   return db.select().from(users).orderBy(desc(users.createdAt));
 }
 
+export async function getAiPromptSetting(promptKey: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(aiPromptSettings).where(eq(aiPromptSettings.promptKey, promptKey)).limit(1);
+  return rows[0] || null;
+}
+
 // ============================================================
 // EMAIL ACCOUNTS
 // ============================================================
@@ -543,7 +592,7 @@ export async function upsertAutomationSettings(userId: number, data: {
       replyCheckEnabled: data.replyCheckEnabled ?? true,
       notifyOnReply: data.notifyOnReply ?? true,
       notifyOnFollowUpDue: data.notifyOnFollowUpDue ?? true,
-      sendDelaySeconds: data.sendDelaySeconds ?? 5,
+      sendDelaySeconds: data.sendDelaySeconds ?? 180,
       autoSendFollowUp: data.autoSendFollowUp ?? false,
     });
   }
