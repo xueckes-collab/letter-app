@@ -121,7 +121,23 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
-  }),
+ 
+
+    // Manually update email content (title and body)
+    updateEmailContent: protectedProcedure
+      .input(z.object({
+        emailId: z.number(),
+        subject: z.string().optional(),
+        body: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await updateEmailSequence(input.emailId, {
+          subject: input.subject,
+          body: input.body,
+        });
+        return { success: true };
+      }),
+ }),
 
   // ============================================================
   // SENDER PROFILE
@@ -190,6 +206,31 @@ export const appRouter = router({
           fileSize: input.fileSize || null, fileUrl: url, fileKey, extractedText,
         });
         return { success: true, assetId, url };
+      }),
+
+    // Email signature and formatting
+    getEmailSettings: protectedProcedure.query(async ({ ctx }) => {
+      const profile = await getSenderProfile(ctx.user.id);
+      return {
+        signature: (profile as any)?.emailSignature || '',
+        fontSize: (profile as any)?.emailFontSize || 14,
+        fontFamily: (profile as any)?.emailFontFamily || 'Arial, sans-serif',
+      };
+    }),
+
+    updateEmailSettings: protectedProcedure
+      .input(z.object({
+        signature: z.string().optional(),
+        fontSize: z.number().min(10).max(24).optional(),
+        fontFamily: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await upsertSenderProfile(ctx.user.id, {
+          emailSignature: input.signature,
+          emailFontSize: input.fontSize,
+          emailFontFamily: input.fontFamily,
+        } as any);
+        return { success: true };
       }),
   }),
 
@@ -336,7 +377,47 @@ export const appRouter = router({
       return getLeadsReadyForFollowUp(ctx.user.id);
     }),
 
-    // Generate follow-up emails for multiple leads
+        // Import pre-parsed leads from Excel file
+    excelBulkImportParsed: protectedProcedure
+      .input(z.object({
+        leads: z.array(z.object({
+          name: z.string(),
+          company: z.string().optional().default(''),
+          email: z.string(),
+          website: z.string().optional().default(''),
+          title: z.string().optional().default(''),
+          phone: z.string().optional().default(''),
+          notes: z.string().optional().default(''),
+        })),
+        autoGenerate: z.boolean().optional().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const results = [];
+        for (const lead of input.leads) {
+          try {
+            const newLead = await createLead({
+              userId: ctx.user.id,
+              name: lead.name,
+              company: lead.company || '',
+              email: lead.email,
+              website: lead.website || '',
+              title: lead.title || '',
+              phone: lead.phone || '',
+              status: 'active',
+            });
+            results.push({ success: true, leadId: newLead.id, email: lead.email });
+          } catch (err: any) {
+            results.push({ success: false, email: lead.email, error: err.message });
+          }
+        }
+        return {
+          imported: results.filter(r => r.success).length,
+          failed: results.filter(r => !r.success).length,
+          results
+        };
+      }),
+
+// Generate follow-up emails for multiple leads
     generateFollowUps: protectedProcedure
       .input(z.object({ leadIds: z.array(z.number()) }))
       .mutation(async ({ ctx, input }) => {
@@ -764,7 +845,7 @@ export const appRouter = router({
         replyCheckEnabled: z.boolean().optional(),
         notifyOnReply: z.boolean().optional(),
         notifyOnFollowUpDue: z.boolean().optional(),
-        sendDelaySeconds: z.number().min(1).max(60).optional(),
+        sendDelaySeconds: z.number().min(1).max(300).optional(),
         autoSendFollowUp: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -828,6 +909,38 @@ export const appRouter = router({
   admin: router({
     listUsers: adminProcedure.query(async () => {
       return getAllUsers();
+    }),
+
+    // AI Prompt Management
+    getAiPrompt: adminProcedure
+      .input(z.object({ promptKey: z.string() }))
+      .query(async ({ input }) => {
+        const { db } = await import("./db");
+        const { aiPromptSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const result = await db.select().from(aiPromptSettings).where(eq(aiPromptSettings.promptKey, input.promptKey)).limit(1);
+        return result[0] || { promptKey: input.promptKey, promptText: '', updatedAt: null };
+      }),
+
+    updateAiPrompt: adminProcedure
+      .input(z.object({ promptKey: z.string(), promptText: z.string() }))
+      .mutation(async ({ input }) => {
+        const { db } = await import("./db");
+        const { aiPromptSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const existing = await db.select().from(aiPromptSettings).where(eq(aiPromptSettings.promptKey, input.promptKey)).limit(1);
+        if (existing.length > 0) {
+          await db.update(aiPromptSettings).set({ promptText: input.promptText, updatedAt: new Date() }).where(eq(aiPromptSettings.promptKey, input.promptKey));
+        } else {
+          await db.insert(aiPromptSettings).values({ promptKey: input.promptKey, promptText: input.promptText });
+        }
+        return { success: true };
+      }),
+
+    listAiPrompts: adminProcedure.query(async () => {
+      const { db } = await import("./db");
+      const { aiPromptSettings } = await import("../drizzle/schema");
+      return await db.select().from(aiPromptSettings);
     }),
   }),
 });
