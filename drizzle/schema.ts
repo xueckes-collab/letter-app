@@ -36,6 +36,9 @@ export const senderProfiles = mysqlTable("sender_profiles", {
   onboardingComplete: boolean("onboardingComplete").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  emailSignature: text("emailSignature"),
+  emailFontSize: int("emailFontSize").default(14),
+  emailFontFamily: varchar("emailFontFamily", { length: 100 }).default("Arial, sans-serif"),
 });
 
 export type SenderProfile = typeof senderProfiles.$inferSelect;
@@ -293,3 +296,16 @@ export const feedbacks = mysqlTable("feedbacks", {
 
 export type Feedback = typeof feedbacks.$inferSelect;
 export type InsertFeedback = typeof feedbacks.$inferInsert;
+
+// AI Prompt Settings - Admin configurable prompts for email generation
+export const aiPromptSettings = mysqlTable("ai_prompt_settings", {
+  id: int("id").primaryKey().autoincrement(),
+  promptKey: varchar("promptKey", { length: 100 }).notNull().unique(),
+  promptText: text("promptText").notNull(),
+  description: varchar("description", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AiPromptSetting = typeof aiPromptSettings.$inferSelect;
+export type NewAiPromptSetting = typeof aiPromptSettings.$inferInsert;
