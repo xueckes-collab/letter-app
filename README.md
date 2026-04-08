@@ -57,10 +57,10 @@ pnpm build
 - **前端** - React 19 + Tailwind CSS 4 + Vite
 - **后端** - Node.js + Express 4 + tRPC 11
 - **数据库** - MySQL (via Drizzle ORM)
-- **认证** - Manus OAuth
+- **认证** - 自托管 JWT（邮箱+密码）
 - **AI** - OpenAI API
 - **邮件** - Snov.io SMTP
-- **部署** - Vercel + Railway
+- **部署** - Render / Vercel + Railway MySQL
 
 ## 📋 项目结构
 
@@ -88,43 +88,68 @@ letter-app/
 
 ## 🔧 环境变量
 
-创建 `.env.local` 文件（本地开发）或在 Vercel 中配置：
+创建 `.env` 文件（本地开发）或在 Render/Vercel 中配置：
 
 ```env
-# 数据库
+# 数据库（必填）
 DATABASE_URL=mysql://user:password@host:port/dbname
 
-# OAuth
-VITE_APP_ID=your_app_id
-OAUTH_SERVER_URL=https://api.manus.im
-VITE_OAUTH_PORTAL_URL=https://login.manus.im
+# 认证（必填）- 生成命令: openssl rand -base64 32
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
 
-# AI
+# AI（必填）
 OPENAI_API_KEY=sk-...
 
-# 邮件
+# 邮件查找（可选）
 SNOVIO_CLIENT_ID=your_client_id
 SNOVIO_CLIENT_SECRET=your_client_secret
 
-# 其他
-JWT_SECRET=your_jwt_secret
+# 文件存储（可选，支持 Cloudflare R2 / AWS S3）
+S3_ENDPOINT=https://your-account.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
+S3_BUCKET=letter-app
+S3_PUBLIC_URL=https://pub-xxx.r2.dev
+
+# 应用配置
 NODE_ENV=production
+VITE_APP_TITLE=Letter App
 ```
+
+> ⚠️ 已移除的 Manus 专属变量（不再需要）：`VITE_APP_ID`、`OAUTH_SERVER_URL`、`VITE_OAUTH_PORTAL_URL`、`BUILT_IN_FORGE_API_URL`、`BUILT_IN_FORGE_API_KEY`、`OWNER_OPEN_ID`、`OWNER_NAME`
 
 ## 📦 部署
 
-### Vercel 部署（已配置）
-应用已部署到 Vercel，每次推送到 `main` 分支时自动部署。
+### Render 部署（推荐）
+1. 在 Render 创建 Web Service，连接 GitHub 仓库
+2. Build Command: `pnpm install && pnpm build`
+3. Start Command: `node dist/index.js`
+4. 配置所有环境变量（见上方列表）
 
-**部署地址：** https://letter-app-kohl-mu.vercel.app
+**当前部署地址：** https://letter-app-1fmm.onrender.com
 
-### 本地部署
+### Vercel 部署
 ```bash
-# 构建
+# 安装 Vercel CLI
+npm i -g vercel
+
+# 部署
+vercel --prod
+```
+
+### 本地开发
+```bash
+# 安装依赖
+pnpm install
+
+# 启动开发服务器
+pnpm dev
+
+# 构建生产版本
 pnpm build
 
 # 启动生产服务器
-NODE_ENV=production node server/index.js
+NODE_ENV=production node dist/index.js
 ```
 
 ## 🧪 测试
