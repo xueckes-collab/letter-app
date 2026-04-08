@@ -467,9 +467,9 @@ export default function EmailSettingsPage() {
                   className="w-full"
                 >
                   {verifySmtp.isPending ? (
-                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />验证中...</>
+                    <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 验证中...</span>
                   ) : (
-                    <><CheckCircle2 className="h-4 w-4 mr-2" />验证 SMTP 连接</>
+                    <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 mr-2" /> 验证 SMTP 连接</span>
                   )}
                 </Button>
 
@@ -565,9 +565,9 @@ export default function EmailSettingsPage() {
               disabled={createAccount.isPending || !selectedProvider || !form.email}
             >
               {createAccount.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin mr-2" />添加中...</>
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 添加中...</span>
               ) : (
-                <><Plus className="h-4 w-4 mr-2" />添加邮箱</>
+                <span className="flex items-center gap-2"><Plus className="h-4 w-4 mr-2" /> 添加邮箱</span>
               )}
             </Button>
           </DialogFooter>

@@ -468,9 +468,9 @@ export default function AutomationPage() {
               variant={newLeads.length > 0 ? "default" : "outline"}
             >
               {batchGenerate.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 生成中...</span>
               ) : (
-                <><Zap className="h-4 w-4 mr-2" />一键批量生成 ({newLeads.length})</>
+                <span className="flex items-center gap-2"><Zap className="h-4 w-4 mr-2" /> 一键批量生成 ({newLeads.length})</span>
               )}
             </Button>
           </CardContent>
@@ -514,9 +514,9 @@ export default function AutomationPage() {
               variant={draftLeads.length > 0 ? "default" : "outline"}
             >
               {batchSend.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin mr-2" />发送中...</>
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 发送中...</span>
               ) : (
-                <><Send className="h-4 w-4 mr-2" />一键发送 ({draftLeads.length})</>
+                <span className="flex items-center gap-2"><Send className="h-4 w-4 mr-2" /> 一键发送 ({draftLeads.length})</span>
               )}
             </Button>
           </CardContent>
@@ -557,9 +557,9 @@ export default function AutomationPage() {
               variant={followUpLeads.length > 0 ? "default" : "outline"}
             >
               {batchFollowUp.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成跟进信...</>
+                <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 生成跟进信...</span>
               ) : (
-                <><Clock className="h-4 w-4 mr-2" />批量生成跟进信 ({followUpLeads.length})</>
+                <span className="flex items-center gap-2"><Clock className="h-4 w-4 mr-2" /> 批量生成跟进信 ({followUpLeads.length})</span>
               )}
             </Button>
           </CardContent>

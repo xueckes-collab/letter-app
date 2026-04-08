@@ -196,11 +196,10 @@ export default function ProfilePage() {
         </Card>
 
         <Button type="submit" disabled={saveProfile.isPending} size="lg" className="w-full">
-          {saveProfile.isPending ? (
-            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />保存中...</>
-          ) : (
-            <><Save className="mr-2 h-4 w-4" />保存资料</>
-          )}
+          {saveProfile.isPending
+            ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />保存中...</span>
+            : <span className="flex items-center gap-2"><Save className="h-4 w-4" />保存资料</span>
+          }
         </Button>
       </form>
 

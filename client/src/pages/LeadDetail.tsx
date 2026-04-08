@@ -221,9 +221,9 @@ export default function LeadDetailPage() {
               size="sm"
             >
               {analyzeReplyMut.isPending ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />分析中...</>
+                <span className="flex items-center gap-2"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 分析中...</span>
               ) : (
-                <><Brain className="mr-2 h-4 w-4" />分析回复并生成邮件</>
+                <span className="flex items-center gap-2"><Brain className="mr-2 h-4 w-4" /> 分析回复并生成邮件</span>
               )}
             </Button>
           </CardContent>

@@ -242,7 +242,7 @@ function QuickAddLead() {
           </div>
           <Button type="submit" disabled={createLead.isPending} className="w-full">
             {createLead.isPending ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</>
+              <span className="flex items-center gap-2"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> AI 分析中...</span>
             ) : (
               <>开始分析并生成邮件 <ArrowRight className="ml-2 h-4 w-4" /></>
             )}
@@ -294,9 +294,9 @@ function BulkImport() {
           <div className="flex gap-2">
             <Button type="submit" variant="outline" disabled={bulkImport.isPending} className="flex-1">
               {bulkImport.isPending ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />导入中...</>
+                <span className="flex items-center gap-2"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 导入中...</span>
               ) : (
-                <><Upload className="mr-2 h-4 w-4" />批量导入客户</>
+                <span className="flex items-center gap-2"><Upload className="mr-2 h-4 w-4" /> 批量导入客户</span>
               )}
             </Button>
           </div>
