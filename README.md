@@ -4,8 +4,6 @@
 
 ## 🚀 快速开始
 
-### 在线访问
-**[点击这里进入应用](https://letter-app-kohl-mu.vercel.app)**
 
 ### 本地开发
 ```bash
