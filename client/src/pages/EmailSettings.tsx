@@ -1,17 +1,18 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
   Loader2, Mail, Plus, Trash2, Star, CheckCircle2,
-  ArrowLeft, Shield, Settings, Eye, EyeOff
+  ArrowLeft, Shield, Settings, Eye, EyeOff, PenLine, Type
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -61,6 +62,39 @@ export default function EmailSettingsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("");
+
+  // Email signature and formatting state
+  const [signature, setSignature] = useState('');
+  const [fontSize, setFontSize] = useState(14);
+  const [fontFamily, setFontFamily] = useState('Arial, sans-serif');
+  const [signatureSaving, setSignatureSaving] = useState(false);
+
+  const emailSettings = trpc.email.getEmailSettings.useQuery(undefined, {
+    onSuccess: (data: any) => {
+      if (data) {
+        setSignature(data.signature || '');
+        setFontSize(data.fontSize || 14);
+        setFontFamily(data.fontFamily || 'Arial, sans-serif');
+      }
+    },
+  });
+
+  const updateEmailSettingsMutation = trpc.email.updateEmailSettings.useMutation({
+    onSuccess: () => {
+      toast.success('邮件格式设置已保存');
+      setSignatureSaving(false);
+    },
+    onError: (err: any) => {
+      toast.error('保存失败: ' + err.message);
+      setSignatureSaving(false);
+    },
+  });
+
+  const handleSaveSignature = () => {
+    setSignatureSaving(true);
+    updateEmailSettingsMutation.mutate({ signature, fontSize, fontFamily });
+  };
+
   const [form, setForm] = useState({
     label: "",
     email: "",
@@ -230,6 +264,87 @@ export default function EmailSettingsPage() {
               </p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Email Format Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PenLine className="h-5 w-5 text-primary" />
+            邮件格式设置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5 text-sm font-medium">
+              <Type className="h-4 w-4" />
+              邮件签名
+            </Label>
+            <Textarea
+              placeholder={"在此输入您的邮件签名，例如：\n\n祝好，\n张三 | 销售总监\nexample@company.com"}
+              value={signature}
+              onChange={(e) => setSignature(e.target.value)}
+              rows={5}
+              className="resize-y text-sm"
+            />
+            <p className="text-xs text-muted-foreground">签名将自动附加在每封发出的邮件末尾</p>
+          </div>
+
+          <Separator />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">字号</Label>
+              <Select value={String(fontSize)} onValueChange={(v) => setFontSize(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((s) => (
+                    <SelectItem key={s} value={String(s)}>{s}px</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">字体</Label>
+              <Select value={fontFamily} onValueChange={setFontFamily}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Arial, sans-serif">Arial</SelectItem>
+                  <SelectItem value="'Times New Roman', serif">Times New Roman</SelectItem>
+                  <SelectItem value="'Helvetica Neue', sans-serif">Helvetica Neue</SelectItem>
+                  <SelectItem value="Georgia, serif">Georgia</SelectItem>
+                  <SelectItem value="'Courier New', monospace">Courier New</SelectItem>
+                  <SelectItem value="Verdana, sans-serif">Verdana</SelectItem>
+                  <SelectItem value="Tahoma, sans-serif">Tahoma</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">预览效果</Label>
+            <div
+              className="p-3 rounded-md border bg-muted/30 min-h-[60px]"
+              style={{ fontSize: fontSize + 'px', fontFamily }}
+            >
+              {signature ? (
+                <pre className="whitespace-pre-wrap m-0" style={{ fontFamily, fontSize }}>{signature}</pre>
+              ) : (
+                <p className="text-muted-foreground text-sm italic">（暂无签名）</p>
+              )}
+            </div>
+          </div>
+
+          <Button onClick={handleSaveSignature} disabled={signatureSaving}>
+            {signatureSaving ? (
+              <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />保存中...</span>
+            ) : '保存格式设置'}
+          </Button>
         </CardContent>
       </Card>
 
