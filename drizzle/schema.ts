@@ -309,3 +309,21 @@ export const aiPromptSettings = mysqlTable("ai_prompt_settings", {
 
 export type AiPromptSetting = typeof aiPromptSettings.$inferSelect;
 export type NewAiPromptSetting = typeof aiPromptSettings.$inferInsert;
+
+
+// ============================================================
+// 15. AUTH LOGS
+// ============================================================
+export const authLogs = mysqlTable("auth_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"), // nullable for failed attempts where user doesn't exist
+  email: varchar("email", { length: 320 }).notNull(),
+  eventType: mysqlEnum("eventType", ["register_success", "register_fail", "login_success", "login_fail"]).notNull(),
+  errorMessage: varchar("errorMessage", { length: 500 }),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  userAgent: varchar("userAgent", { length: 512 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AuthLog = typeof authLogs.$inferSelect;
+export type InsertAuthLog = typeof authLogs.$inferInsert;
