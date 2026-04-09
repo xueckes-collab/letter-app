@@ -3,5 +3,11 @@
   "buildCommand": "pnpm build",
   "devCommand": "pnpm dev",
   "framework": "vite",
-  "outputDirectory": "dist/public"
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
