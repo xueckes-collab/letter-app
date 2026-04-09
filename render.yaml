@@ -21,23 +21,15 @@ services:
         sync: false
       - key: SNOVIO_CLIENT_SECRET
         sync: false
-      - key: VITE_APP_ID
+      - key: S3_ENDPOINT
         sync: false
-      - key: OAUTH_SERVER_URL
+      - key: S3_ACCESS_KEY_ID
         sync: false
-      - key: VITE_OAUTH_PORTAL_URL
+      - key: S3_SECRET_ACCESS_KEY
         sync: false
-      - key: OWNER_OPEN_ID
+      - key: S3_BUCKET
         sync: false
-      - key: OWNER_NAME
-        sync: false
-      - key: BUILT_IN_FORGE_API_URL
-        sync: false
-      - key: BUILT_IN_FORGE_API_KEY
-        sync: false
-      - key: VITE_FRONTEND_FORGE_API_KEY
-        sync: false
-      - key: VITE_FRONTEND_FORGE_API_URL
+      - key: S3_PUBLIC_URL
         sync: false
 
 databases:
