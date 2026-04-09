@@ -58,7 +58,7 @@ pnpm build
 - **认证** - 自托管 JWT（邮箱+密码）
 - **AI** - OpenAI API
 - **邮件** - Snov.io SMTP
-- **部署** - Render / Vercel + Railway MySQL
+- **部署** - Render
 
 ## 📋 项目结构
 
@@ -80,13 +80,12 @@ letter-app/
 │   │   └── scheduler.ts   # 自动化任务调度
 │   └── _core/             # 框架核心
 ├── drizzle/               # 数据库 schema 和迁移
-├── vercel.json            # Vercel 部署配置
 └── package.json
 ```
 
 ## 🔧 环境变量
 
-创建 `.env` 文件（本地开发）或在 Render/Vercel 中配置：
+创建 `.env` 文件（本地开发）或在 Render 中配置：
 
 ```env
 # 数据库（必填）
@@ -126,14 +125,6 @@ VITE_APP_TITLE=Letter App
 
 **当前部署地址：** https://letter-app-1fmm.onrender.com
 
-### Vercel 部署
-```bash
-# 安装 Vercel CLI
-npm i -g vercel
-
-# 部署
-vercel --prod
-```
 
 ### 本地开发
 ```bash
@@ -203,6 +194,5 @@ MIT
 ---
 
 **快速链接：**
-- 🚀 [在线应用](https://letter-app-kohl-mu.vercel.app)
+- 🚀 [在线应用](https://letter-app-1fmm.onrender.com)
 - 📖 [GitHub 仓库](https://github.com/xueckes-collab/letter-app)
-- 🔧 [部署配置](./vercel.json)
