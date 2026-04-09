@@ -656,3 +656,18 @@ export async function deleteFeedback(id: number) {
   if (!db) return;
   await db.delete(feedbacks).where(eq(feedbacks.id, id));
 }
+
+
+// ============================================================
+// SEED ADMIN USER
+// ============================================================
+export async function seedAdminUser(adminEmail: string) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.update(users).set({ role: 'admin' }).where(eq(users.email, adminEmail));
+    console.log('[Seed] Admin role set for:', adminEmail);
+  } catch (err) {
+    console.warn('[Seed] Failed to set admin role:', err);
+  }
+}
