@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startScheduler } from "../services/scheduler";
+import { seedAdminUser } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -62,6 +63,8 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     // Start background scheduler for follow-up detection and reply checking
     startScheduler();
+    // Set admin role for the designated admin email
+    seedAdminUser('xueckes@gmail.com').catch(console.error);
   });
 }
 
