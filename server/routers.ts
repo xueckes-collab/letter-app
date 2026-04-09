@@ -966,6 +966,145 @@ export const appRouter = router({
       if (!db) throw new Error('DB unavailable');
       return await db.select().from(aiPromptSettings);
     }),
+
+    // ── Dashboard Stats ────────────────────────────────────────
+    getDashboardStats: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) {
+        return { sentToday: 0, repliedToday: 0, failedTotal: 0, draftTotal: 0, activeUsers: 0, autoFollowUpCount: 0, totalUsers: 0, totalEmails: 0 };
+      }
+      const { emailSequences: esTable, users: usersTable, leads: leadsTable } = await import('../drizzle/schema');
+      const { sql: sqlFn, eq, gte, and } = await import('drizzle-orm');
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const [[sentRow], [failedRow], [draftRow], [activeRow], [totalUsersRow], [totalEmailsRow], [repliedRow]] = await Promise.all([
+        db.select({ count: sqlFn<number>`count(*)` }).from(esTable).where(and(eq(esTable.status, 'sent'), gte(esTable.sentAt, today))),
+        db.select({ count: sqlFn<number>`count(*)` }).from(esTable).where(eq(esTable.status, 'failed')),
+        db.select({ count: sqlFn<number>`count(*)` }).from(esTable).where(eq(esTable.status, 'draft')),
+        db.select({ count: sqlFn<number>`count(*)` }).from(usersTable).where(gte(usersTable.lastSignedIn, sevenDaysAgo)),
+        db.select({ count: sqlFn<number>`count(*)` }).from(usersTable),
+        db.select({ count: sqlFn<number>`count(*)` }).from(esTable),
+        db.select({ count: sqlFn<number>`count(*)` }).from(leadsTable).where(eq(leadsTable.replyStatus, 'replied')),
+      ]);
+
+      return {
+        sentToday: Number(sentRow?.count ?? 0),
+        repliedToday: Number(repliedRow?.count ?? 0),
+        failedTotal: Number(failedRow?.count ?? 0),
+        draftTotal: Number(draftRow?.count ?? 0),
+        activeUsers: Number(activeRow?.count ?? 0),
+        totalUsers: Number(totalUsersRow?.count ?? 0),
+        totalEmails: Number(totalEmailsRow?.count ?? 0),
+        autoFollowUpCount: 0,
+      };
+    }),
+
+    // ── Email Tasks (admin view of all sequences) ──────────────
+    listEmailTasks: adminProcedure
+      .input(z.object({
+        status: z.string().optional(),
+        page: z.number().default(1),
+        limit: z.number().default(20),
+      }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) return { items: [], total: 0 };
+        const { emailSequences: esTable, users: usersTable, leads: leadsTable } = await import('../drizzle/schema');
+        const { desc, eq, leftJoin } = await import('drizzle-orm');
+        const offset = (input.page - 1) * input.limit;
+        const cols = {
+          id: esTable.id, userId: esTable.userId, leadId: esTable.leadId,
+          emailType: esTable.emailType, subject: esTable.subject, body: esTable.body,
+          status: esTable.status, sentAt: esTable.sentAt, createdAt: esTable.createdAt,
+          stageNumber: esTable.stageNumber,
+          userName: usersTable.name, userEmail: usersTable.email,
+          leadEmail: leadsTable.email, leadCompany: leadsTable.companyName,
+        };
+        const items = input.status
+          ? await db.select(cols).from(esTable)
+              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+              .where(eq(esTable.status, input.status))
+              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset)
+          : await db.select(cols).from(esTable)
+              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset);
+        return { items, total: items.length };
+      }),
+
+    // ── Failed emails for dashboard ────────────────────────────
+    getRecentFailedEmails: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const { emailSequences: esTable, users: usersTable, leads: leadsTable } = await import('../drizzle/schema');
+      const { eq, desc } = await import('drizzle-orm');
+      return db.select({
+        id: esTable.id, subject: esTable.subject, status: esTable.status,
+        sentAt: esTable.sentAt, createdAt: esTable.createdAt,
+        userName: usersTable.name, leadEmail: leadsTable.email, leadCompany: leadsTable.companyName,
+      }).from(esTable)
+        .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+        .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+        .where(eq(esTable.status, 'failed'))
+        .orderBy(desc(esTable.createdAt)).limit(10);
+    }),
+
+    // ── All Automation Settings ────────────────────────────────
+    listAllAutomation: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const { automationSettings: asTable, users: usersTable } = await import('../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      return db.select({
+        id: asTable.id, userId: asTable.userId,
+        followUpHours: asTable.followUpHours, maxFollowUpRounds: asTable.maxFollowUpRounds,
+        autoFollowUpEnabled: asTable.autoFollowUpEnabled, replyCheckEnabled: asTable.replyCheckEnabled,
+        sendDelaySeconds: asTable.sendDelaySeconds, autoSendFollowUp: asTable.autoSendFollowUp,
+        updatedAt: asTable.updatedAt,
+        userName: usersTable.name, userEmail: usersTable.email,
+      }).from(asTable).leftJoin(usersTable, eq(asTable.userId, usersTable.id));
+    }),
+
+    // ── User role management ───────────────────────────────────
+    updateUserRole: adminProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(['user', 'admin']) }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.id === input.userId) throw new Error('不能修改自己的角色');
+        const db = await getDb();
+        if (!db) throw new Error('DB unavailable');
+        const { users: usersTable } = await import('../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        await db.update(usersTable).set({ role: input.role }).where(eq(usersTable.id, input.userId));
+        return { success: true };
+      }),
+
+    // ── Pause email task ───────────────────────────────────────
+    pauseEmailTask: adminProcedure
+      .input(z.object({ emailId: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error('DB unavailable');
+        const { emailSequences: esTable } = await import('../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        await db.update(esTable).set({ status: 'paused' }).where(eq(esTable.id, input.emailId));
+        return { success: true };
+      }),
+
+    // ── Resend email task (reset to draft) ─────────────────────
+    resendEmailTask: adminProcedure
+      .input(z.object({ emailId: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error('DB unavailable');
+        const { emailSequences: esTable } = await import('../drizzle/schema');
+        const { eq } = await import('drizzle-orm');
+        await db.update(esTable).set({ status: 'draft' }).where(eq(esTable.id, input.emailId));
+        return { success: true };
+      }),
   }),
 });
 
