@@ -6,6 +6,7 @@ export const ENV = {
   snovioClientId: process.env.SNOVIO_CLIENT_ID ?? "",
   snovioClientSecret: process.env.SNOVIO_CLIENT_SECRET ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   // S3-compatible storage (Cloudflare R2 or AWS S3)
   s3Endpoint: process.env.S3_ENDPOINT ?? "",
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
