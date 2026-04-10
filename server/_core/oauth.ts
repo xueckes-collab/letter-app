@@ -1,4 +1,4 @@
-/**
+─────────────────/**
  * Auth routes - Email + Password login/register
  * Replaces Manus OAuth callback entirely.
  */
