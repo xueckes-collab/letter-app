@@ -34,16 +34,16 @@ import {
 } from "@/components/ui/accordion";
 
 const PROVIDER_INFO: Record<string, { name: string; icon: string; desc: string }> = {
-    snovio: { name: "Snov.io", icon: "🔍", desc: "Snov.io 邮件营销平台" },
-    gmail: { name: "Gmail", icon: "📧", desc: "Google Gmail (需开启应用专用密码)" },
-    outlook: { name: "Outlook", icon: "📬", desc: "Microsoft Outlook / Hotmail" },
-    qq: { name: "QQ 邮箱", icon: "📮", desc: "QQ 邮箱 (需开启 SMTP 服务)" },
-    "163": { name: "网易 163", icon: "📨", desc: "网易 163 邮箱" },
-    yahoo: { name: "Yahoo", icon: "📩", desc: "Yahoo Mail" },
-    zoho: { name: "Zoho", icon: "✉️", desc: "Zoho Mail" },
-    sendgrid: { name: "SendGrid", icon: "🚀", desc: "SendGrid 邮件服务" },
-    mailgun: { name: "Mailgun", icon: "🔫", desc: "Mailgun 邮件服务" },
-    custom: { name: "自定义 SMTP", icon: "⚙️", desc: "手动配置 SMTP/IMAP 服务器" },
+    snovio: { name: "Snov.io", icon: "ð", desc: "Snov.io é®ä»¶è¥éå¹³å°" },
+    gmail: { name: "Gmail", icon: "ð§", desc: "Google Gmail (éå¼å¯åºç¨ä¸ç¨å¯ç )" },
+    outlook: { name: "Outlook", icon: "ð¬", desc: "Microsoft Outlook / Hotmail" },
+    qq: { name: "QQ é®ç®±", icon: "ð®", desc: "QQ é®ç®± (éå¼å¯ SMTP æå¡)" },
+    "163": { name: "ç½æ 163", icon: "ð¨", desc: "ç½æ 163 é®ç®±" },
+    yahoo: { name: "Yahoo", icon: "ð©", desc: "Yahoo Mail" },
+    zoho: { name: "Zoho", icon: "âï¸", desc: "Zoho Mail" },
+    sendgrid: { name: "SendGrid", icon: "ð", desc: "SendGrid é®ä»¶æå¡" },
+    mailgun: { name: "Mailgun", icon: "ð«", desc: "Mailgun é®ä»¶æå¡" },
+    custom: { name: "èªå®ä¹ SMTP", icon: "âï¸", desc: "æå¨éç½® SMTP/IMAP æå¡å¨" },
 };
 
 // IMAP presets derived from SMTP providers
@@ -91,11 +91,11 @@ export default function EmailSettingsPage() {
 
   const updateEmailSettingsMutation = trpc.profile.updateEmailSettings.useMutation({
         onSuccess: () => {
-                toast.success('邮件格式设置已保存');
+                toast.success('é®ä»¶æ ¼å¼è®¾ç½®å·²ä¿å­');
                 setSignatureSaving(false);
         },
         onError: (err: any) => {
-                toast.error('保存失败: ' + err.message);
+                toast.error('ä¿å­å¤±è´¥: ' + err.message);
                 setSignatureSaving(false);
         },
   });
@@ -152,7 +152,7 @@ export default function EmailSettingsPage() {
 
   const handleVerify = async () => {
         if (!form.smtpHost || !form.smtpUser || !form.smtpPass) {
-                toast.error("请填写完整的 SMTP 信息");
+                toast.error("è¯·å¡«åå®æ´ç SMTP ä¿¡æ¯");
                 return;
         }
         try {
@@ -164,18 +164,18 @@ export default function EmailSettingsPage() {
                           smtpSecure: form.smtpSecure,
                 });
                 if (result.success) {
-                          toast.success("SMTP 连接验证成功！");
+                          toast.success("SMTP è¿æ¥éªè¯æåï¼");
                 } else {
-                          toast.error("SMTP 连接失败: " + (result.error || "未知错误"));
+                          toast.error("SMTP è¿æ¥å¤±è´¥: " + (result.error || "æªç¥éè¯¯"));
                 }
         } catch (e: any) {
-                toast.error("验证失败: " + (e.message || "未知错误"));
+                toast.error("éªè¯å¤±è´¥: " + (e.message || "æªç¥éè¯¯"));
         }
   };
 
   const handleCreate = async () => {
         if (!form.email || !selectedProvider) {
-                toast.error("请填写邮箱地址并选择邮箱类型");
+                toast.error("è¯·å¡«åé®ç®±å°åå¹¶éæ©é®ç®±ç±»å");
                 return;
         }
         try {
@@ -195,32 +195,32 @@ export default function EmailSettingsPage() {
                           snovioClientSecret: form.snovioClientSecret || undefined,
                           isDefault: form.isDefault || (!accounts || accounts.length === 0),
                 });
-                toast.success("邮箱账户添加成功！");
+                toast.success("é®ç®±è´¦æ·æ·»å æåï¼");
                 setShowAdd(false);
                 resetForm();
                 utils.emailAccounts.list.invalidate();
         } catch (e: any) {
-                toast.error("添加失败: " + (e.message || "未知错误"));
+                toast.error("æ·»å å¤±è´¥: " + (e.message || "æªç¥éè¯¯"));
         }
   };
 
   const handleDelete = async (accountId: number) => {
         try {
                 await deleteAccount.mutateAsync({ accountId });
-                toast.success("邮箱账户已删除");
+                toast.success("é®ç®±è´¦æ·å·²å é¤");
                 utils.emailAccounts.list.invalidate();
         } catch (e: any) {
-                toast.error("删除失败: " + (e.message || "未知错误"));
+                toast.error("å é¤å¤±è´¥: " + (e.message || "æªç¥éè¯¯"));
         }
   };
 
   const handleSetDefault = async (accountId: number) => {
         try {
                 await setDefault.mutateAsync({ accountId });
-                toast.success("已设为默认发件邮箱");
+                toast.success("å·²è®¾ä¸ºé»è®¤åä»¶é®ç®±");
                 utils.emailAccounts.list.invalidate();
         } catch (e: any) {
-                toast.error("设置失败: " + (e.message || "未知错误"));
+                toast.error("è®¾ç½®å¤±è´¥: " + (e.message || "æªç¥éè¯¯"));
         }
   };
 
@@ -262,10 +262,10 @@ export default function EmailSettingsPage() {
                         <div>
                                   <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                                               <Settings className="h-6 w-6 text-primary" />
-                                              邮箱设置
-                                  </h1>h1>
+                                              é®ç®±è®¾ç½®
+                                  </h1>
                                   <p className="text-muted-foreground mt-1">
-                                              配置发件邮箱（SMTP 发送 + IMAP 收信检测），支持 Snov.io、Gmail、Outlook、QQ邮箱等
+                                              éç½®åä»¶é®ç®±ï¼SMTP åé + IMAP æ¶ä¿¡æ£æµï¼ï¼æ¯æ Snov.ioãGmailãOutlookãQQé®ç®±ç­
                                   </p>
                         </div>
                 </div>
@@ -276,10 +276,10 @@ export default function EmailSettingsPage() {
                                   <div className="flex items-start gap-3">
                                               <Shield className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
                                               <div className="text-sm space-y-1">
-                                                            <p className="font-medium">安全提示</p>
+                                                            <p className="font-medium">å®å¨æç¤º</p>
                                                             <p className="text-muted-foreground">
-                                                                            所有邮箱密码均加密存储。建议使用<strong>应用专用密码</strong>而非登录密码。
-                                                                            系统会通过 SMTP 发送邮件，通过 IMAP 自动检测客户回信。
+                                                                            ææé®ç®±å¯ç åå å¯å­å¨ãå»ºè®®ä½¿ç¨<strong>åºç¨ä¸ç¨å¯ç </strong>èéç»å½å¯ç ã
+                                                                            ç³»ç»ä¼éè¿ SMTP åéé®ä»¶ï¼éè¿ IMAP èªå¨æ£æµå®¢æ·åä¿¡ã
                                                             </p>
                                               </div>
                                   </div>
@@ -291,29 +291,29 @@ export default function EmailSettingsPage() {
                         <CardHeader>
                                   <CardTitle className="flex items-center gap-2">
                                               <PenLine className="h-5 w-5 text-primary" />
-                                              邮件格式设置
+                                              é®ä»¶æ ¼å¼è®¾ç½®
                                   </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-5">
                                   <div className="space-y-2">
                                               <Label className="flex items-center gap-1.5 text-sm font-medium">
                                                             <Type className="h-4 w-4" />
-                                                            邮件签名
+                                                            é®ä»¶ç­¾å
                                               </Label>
                                               <Textarea
-                                                              placeholder={"在此输入您的邮件签名，例如：\n\n祝好，\n张三 | 销售总监\nexample@company.com"}
+                                                              placeholder={"å¨æ­¤è¾å¥æ¨çé®ä»¶ç­¾åï¼ä¾å¦ï¼\n\nç¥å¥½ï¼\nå¼ ä¸ | éå®æ»ç\nexample@company.com"}
                                                               value={signature}
                                                               onChange={(e) => setSignature(e.target.value)}
                                                               rows={5}
                                                               className="resize-y text-sm"
                                                             />
-                                              <p className="text-xs text-muted-foreground">签名将自动附加在每封发出的邮件末尾</p>
+                                              <p className="text-xs text-muted-foreground">ç­¾åå°èªå¨éå å¨æ¯å°ååºçé®ä»¶æ«å°¾</p>
                                   </div>
                         
                                   <div className="space-y-2">
                                               <Label className="flex items-center gap-1.5 text-sm font-medium">
                                                             <ImageIcon className="h-4 w-4" />
-                                                            签名 Logo（可选）
+                                                            ç­¾å Logoï¼å¯éï¼
                                               </Label>
                                               <div className="flex items-center gap-3">
                                                 {signatureLogoUrl ? (
@@ -334,7 +334,7 @@ export default function EmailSettingsPage() {
                           ) : (
                             <label className="flex items-center gap-2 px-3 py-2 border border-dashed rounded-md cursor-pointer hover:bg-accent/50 text-sm text-muted-foreground">
                                               <ImageIcon className="h-4 w-4" />
-                                              上传图片（PNG / JPG / SVG，建议高度 40-60px）
+                                              ä¸ä¼ å¾çï¼PNG / JPG / SVGï¼å»ºè®®é«åº¦ 40-60pxï¼
                                               <input
                                                                     type="file"
                                                                     accept="image/*"
@@ -343,7 +343,7 @@ export default function EmailSettingsPage() {
                                                                                             const file = e.target.files?.[0];
                                                                                             if (!file) return;
                                                                                             if (file.size > 2 * 1024 * 1024) {
-                                                                                                                      toast.error("图片大小不能超过 2MB");
+                                                                                                                      toast.error("å¾çå¤§å°ä¸è½è¶è¿ 2MB");
                                                                                                                       return;
                                                                                               }
                                                                                             const reader = new FileReader();
@@ -356,14 +356,14 @@ export default function EmailSettingsPage() {
                             </label>
                                                             )}
                                               </div>
-                                              <p className="text-xs text-muted-foreground">Logo 将显示在签名文字上方，以 base64 嵌入邮件</p>
+                                              <p className="text-xs text-muted-foreground">Logo å°æ¾ç¤ºå¨ç­¾åæå­ä¸æ¹ï¼ä»¥ base64 åµå¥é®ä»¶</p>
                                   </div>
                         
                                   <Separator />
                         
                                   <div className="grid grid-cols-2 gap-4">
                                               <div className="space-y-2">
-                                                            <Label className="text-sm font-medium">字号</Label>
+                                                            <Label className="text-sm font-medium">å­å·</Label>
                                                             <Select value={String(fontSize)} onValueChange={(v) => setFontSize(Number(v))}>
                                                                             <SelectTrigger>
                                                                                               <SelectValue />
@@ -376,7 +376,7 @@ export default function EmailSettingsPage() {
                                                             </Select>
                                               </div>
                                               <div className="space-y-2">
-                                                            <Label className="text-sm font-medium">字体</Label>
+                                                            <Label className="text-sm font-medium">å­ä½</Label>
                                                             <Select value={fontFamily} onValueChange={setFontFamily}>
                                                                             <SelectTrigger>
                                                                                               <SelectValue />
@@ -395,7 +395,7 @@ export default function EmailSettingsPage() {
                                   </div>
                         
                                   <div className="space-y-2">
-                                              <Label className="text-sm font-medium">预览效果</Label>
+                                              <Label className="text-sm font-medium">é¢è§ææ</Label>
                                               <div
                                                               className="p-3 rounded-md border bg-muted/30 min-h-[60px]"
                                                               style={{ fontSize: fontSize + 'px', fontFamily }}
@@ -410,15 +410,15 @@ export default function EmailSettingsPage() {
                                                 {signature ? (
                                                                               <pre className="whitespace-pre-wrap m-0" style={{ fontFamily, fontSize }}>{signature}</pre>
                                                                             ) : (
-                                                                              <p className="text-muted-foreground text-sm italic">（暂无签名）</p>
+                                                                              <p className="text-muted-foreground text-sm italic">ï¼ææ ç­¾åï¼</p>
                                                             )}
                                               </div>
                                   </div>
                         
                                   <Button onClick={handleSaveSignature} disabled={signatureSaving}>
                                     {signatureSaving ? (
-                          <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />保存中...</span>
-                        ) : '保存格式设置'}
+                          <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />ä¿å­ä¸­...</span>
+                        ) : 'ä¿å­æ ¼å¼è®¾ç½®'}
                                   </Button>
                         </CardContent>
                 </Card>
@@ -426,10 +426,10 @@ export default function EmailSettingsPage() {
             {/* Account List */}
                 <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                                  <h2 className="text-lg font-semibold">已配置的邮箱 ({accounts?.length || 0})</h2>h2>
+                                  <h2 className="text-lg font-semibold">å·²éç½®çé®ç®± ({accounts?.length || 0})</h2>
                                   <Button onClick={() => { resetForm(); setShowAdd(true); }}>
                                               <Plus className="h-4 w-4 mr-2" />
-                                              添加邮箱
+                                              æ·»å é®ç®±
                                   </Button>
                         </div>
                 
@@ -437,13 +437,13 @@ export default function EmailSettingsPage() {
                       <Card className="border-dashed">
                                   <CardContent className="py-12 text-center">
                                                 <Mail className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                                                <p className="text-muted-foreground">尚未配置任何发件邮箱</p>
+                                                <p className="text-muted-foreground">å°æªéç½®ä»»ä½åä»¶é®ç®±</p>
                                                 <p className="text-sm text-muted-foreground/60 mt-1">
-                                                                添加邮箱后即可发送邮件并自动检测客户回信
+                                                                æ·»å é®ç®±åå³å¯åéé®ä»¶å¹¶èªå¨æ£æµå®¢æ·åä¿¡
                                                 </p>
                                                 <Button className="mt-4" onClick={() => { resetForm(); setShowAdd(true); }}>
                                                                 <Plus className="h-4 w-4 mr-2" />
-                                                                添加第一个邮箱
+                                                                æ·»å ç¬¬ä¸ä¸ªé®ç®±
                                                 </Button>
                                   </CardContent>
                       </Card>
@@ -454,14 +454,14 @@ export default function EmailSettingsPage() {
                                                                   <div className="flex items-center justify-between">
                                                                                     <div className="flex items-center gap-3 min-w-0">
                                                                                                         <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center shrink-0 text-lg">
-                                                                                                          {PROVIDER_INFO[account.provider]?.icon || "📧"}
+                                                                                                          {PROVIDER_INFO[account.provider]?.icon || "ð§"}
                                                                                                           </div>
                                                                                                         <div className="min-w-0">
                                                                                                                               <div className="flex items-center gap-2">
                                                                                                                                                       <p className="text-sm font-medium truncate">{account.label}</p>
                                                                                                                                 {account.isDefault && (
                                                                 <Badge variant="outline" className="text-xs text-primary border-primary/30">
-                                                                                            <Star className="h-3 w-3 mr-1 fill-current" />默认
+                                                                                            <Star className="h-3 w-3 mr-1 fill-current" />é»è®¤
                                                                 </Badge>
                                                                                                                                                       )}
                                                                                                                                                       <Badge variant="secondary" className="text-[10px]">
@@ -470,7 +470,7 @@ export default function EmailSettingsPage() {
                                                                                                                                 </div>
                                                                                                                               <p className="text-xs text-muted-foreground truncate mt-0.5">
                                                                                                                                 {account.email}
-                                                                                                                                {account.imapHost && <span className="ml-2 text-green-500">IMAP 已配置</span>}
+                                                                                                                                {account.imapHost && <span className="ml-2 text-green-500">IMAP å·²éç½®</span>}
                                                                                                                                 </p>
                                                                                                           </div>
                                                                                       </div>
@@ -483,7 +483,7 @@ export default function EmailSettingsPage() {
                                                                                       disabled={setDefault.isPending}
                                                                                       className="text-xs"
                                                                                     >
-                                                                                    <Star className="h-3 w-3 mr-1" />设为默认
+                                                                                    <Star className="h-3 w-3 mr-1" />è®¾ä¸ºé»è®¤
                                                             </Button>
                                                                                                         )}
                                                                                                         <Button
@@ -507,31 +507,31 @@ export default function EmailSettingsPage() {
                 <Dialog open={showAdd} onOpenChange={(open) => { setShowAdd(open); if (!open) resetForm(); }}>
                         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                                   <DialogHeader>
-                                              <DialogTitle>添加发件邮箱</DialogTitle>
+                                              <DialogTitle>æ·»å åä»¶é®ç®±</DialogTitle>
                                               <DialogDescription>
-                                                            选择邮箱类型，系统会自动填充 SMTP 和 IMAP 设置
+                                                            éæ©é®ç®±ç±»åï¼ç³»ç»ä¼èªå¨å¡«å SMTP å IMAP è®¾ç½®
                                               </DialogDescription>
                                   </DialogHeader>
                         
                                   <div className="space-y-4">
                                     {/* Provider Selection */}
                                               <div className="space-y-2">
-                                                            <Label>邮箱类型</Label>
+                                                            <Label>é®ç®±ç±»å</Label>
                                                             <Select value={selectedProvider} onValueChange={handleSelectProvider}>
                                                                             <SelectTrigger>
-                                                                                              <SelectValue placeholder="选择邮箱类型..." />
+                                                                                              <SelectValue placeholder="éæ©é®ç®±ç±»å..." />
                                                                             </SelectTrigger>
                                                                             <SelectContent>
-                                                                                              <SelectItem value="snovio">🔍 Snov.io（推荐）</SelectItem>
-                                                                                              <SelectItem value="gmail">📧 Gmail</SelectItem>
-                                                                                              <SelectItem value="outlook">📬 Outlook / Hotmail</SelectItem>
-                                                                                              <SelectItem value="qq">📮 QQ 邮箱</SelectItem>
-                                                                                              <SelectItem value="163">📨 网易 163</SelectItem>
-                                                                                              <SelectItem value="yahoo">📩 Yahoo Mail</SelectItem>
-                                                                                              <SelectItem value="zoho">✉️ Zoho Mail</SelectItem>
-                                                                                              <SelectItem value="sendgrid">🚀 SendGrid</SelectItem>
-                                                                                              <SelectItem value="mailgun">🔫 Mailgun</SelectItem>
-                                                                                              <SelectItem value="custom">⚙️ 自定义 SMTP</SelectItem>
+                                                                                              <SelectItem value="snovio">ð Snov.ioï¼æ¨èï¼</SelectItem>
+                                                                                              <SelectItem value="gmail">ð§ Gmail</SelectItem>
+                                                                                              <SelectItem value="outlook">ð¬ Outlook / Hotmail</SelectItem>
+                                                                                              <SelectItem value="qq">ð® QQ é®ç®±</SelectItem>
+                                                                                              <SelectItem value="163">ð¨ ç½æ 163</SelectItem>
+                                                                                              <SelectItem value="yahoo">ð© Yahoo Mail</SelectItem>
+                                                                                              <SelectItem value="zoho">âï¸ Zoho Mail</SelectItem>
+                                                                                              <SelectItem value="sendgrid">ð SendGrid</SelectItem>
+                                                                                              <SelectItem value="mailgun">ð« Mailgun</SelectItem>
+                                                                                              <SelectItem value="custom">âï¸ èªå®ä¹ SMTP</SelectItem>
                                                                             </SelectContent>
                                                             </Select>
                                               </div>
@@ -542,29 +542,29 @@ export default function EmailSettingsPage() {
                             {selectedProvider === "snovio" && (
                                               <Card className="border-blue-500/20 bg-blue-500/5">
                                                                   <CardContent className="py-3 text-xs text-muted-foreground space-y-1">
-                                                                                        <p className="font-medium text-foreground">Snov.io 配置说明</p>
-                                                                                        <p>使用 Snov.io 的 SMTP 中继服务发送邮件，IMAP 接收回信。</p>
-                                                                                        <p>SMTP/IMAP 用户名填写你的 Snov.io 登录邮箱，密码填写 Snov.io 账号密码。</p>
+                                                                                        <p className="font-medium text-foreground">Snov.io éç½®è¯´æ</p>
+                                                                                        <p>ä½¿ç¨ Snov.io ç SMTP ä¸­ç»§æå¡åéé®ä»¶ï¼IMAP æ¥æ¶åä¿¡ã</p>
+                                                                                        <p>SMTP/IMAP ç¨æ·åå¡«åä½ ç Snov.io ç»å½é®ç®±ï¼å¯ç å¡«å Snov.io è´¦å·å¯ç ã</p>
                                                                   </CardContent>
                                               </Card>
                                           )}
                             {selectedProvider === "gmail" && (
                                               <Card className="border-amber-500/20 bg-amber-500/5">
                                                                   <CardContent className="py-3 text-xs text-muted-foreground space-y-1">
-                                                                                        <p className="font-medium text-foreground">Gmail 配置说明</p>
-                                                                                        <p>1. 前往 Google 账号 → 安全性 → 两步验证（必须开启）</p>
-                                                                                        <p>2. 搜索"应用专用密码"，生成一个新密码</p>
-                                                                                        <p>3. 将生成的16位密码填入下方 SMTP 密码字段</p>
+                                                                                        <p className="font-medium text-foreground">Gmail éç½®è¯´æ</p>
+                                                                                        <p>1. åå¾ Google è´¦å· â å®å¨æ§ â ä¸¤æ­¥éªè¯ï¼å¿é¡»å¼å¯ï¼</p>
+                                                                                        <p>2. æç´¢"åºç¨ä¸ç¨å¯ç "ï¼çæä¸ä¸ªæ°å¯ç </p>
+                                                                                        <p>3. å°çæç16ä½å¯ç å¡«å¥ä¸æ¹ SMTP å¯ç å­æ®µ</p>
                                                                   </CardContent>
                                               </Card>
                                           )}
                             {selectedProvider === "qq" && (
                                               <Card className="border-amber-500/20 bg-amber-500/5">
                                                                   <CardContent className="py-3 text-xs text-muted-foreground space-y-1">
-                                                                                        <p className="font-medium text-foreground">QQ 邮箱配置说明</p>
-                                                                                        <p>1. 登录 QQ 邮箱 → 设置 → 账户 → POP3/SMTP 服务（开启）</p>
-                                                                                        <p>2. 按提示发送短信获取授权码</p>
-                                                                                        <p>3. 将授权码填入下方 SMTP 密码字段</p>
+                                                                                        <p className="font-medium text-foreground">QQ é®ç®±éç½®è¯´æ</p>
+                                                                                        <p>1. ç»å½ QQ é®ç®± â è®¾ç½® â è´¦æ· â POP3/SMTP æå¡ï¼å¼å¯ï¼</p>
+                                                                                        <p>2. ææç¤ºåéç­ä¿¡è·åææç </p>
+                                                                                        <p>3. å°ææç å¡«å¥ä¸æ¹ SMTP å¯ç å­æ®µ</p>
                                                                   </CardContent>
                                               </Card>
                                           )}
@@ -574,15 +574,15 @@ export default function EmailSettingsPage() {
                             {/* Common Fields */}
                                           <div className="grid grid-cols-2 gap-3">
                                                             <div className="space-y-1.5">
-                                                                                <Label className="text-xs">显示名称</Label>
+                                                                                <Label className="text-xs">æ¾ç¤ºåç§°</Label>
                                                                                 <Input
                                                                                                         value={form.label}
                                                                                                         onChange={e => setForm(prev => ({ ...prev, label: e.target.value }))}
-                                                                                                        placeholder="如：我的 Gmail"
+                                                                                                        placeholder="å¦ï¼æç Gmail"
                                                                                                       />
                                                             </div>
                                                             <div className="space-y-1.5">
-                                                                                <Label className="text-xs">发件邮箱地址</Label>
+                                                                                <Label className="text-xs">åä»¶é®ç®±å°å</Label>
                                                                                 <Input
                                                                                                         type="email"
                                                                                                         value={form.email}
@@ -594,10 +594,10 @@ export default function EmailSettingsPage() {
                           
                             {/* SMTP Fields */}
                                           <div className="space-y-3">
-                                                            <p className="text-sm font-medium">SMTP 发送设置</p>
+                                                            <p className="text-sm font-medium">SMTP åéè®¾ç½®</p>
                                                             <div className="grid grid-cols-2 gap-3">
                                                                                 <div className="space-y-1.5">
-                                                                                                      <Label className="text-xs">SMTP 服务器</Label>
+                                                                                                      <Label className="text-xs">SMTP æå¡å¨</Label>
                                                                                                       <Input
                                                                                                                                 value={form.smtpHost}
                                                                                                                                 onChange={e => setForm(prev => ({ ...prev, smtpHost: e.target.value }))}
@@ -606,7 +606,7 @@ export default function EmailSettingsPage() {
                                                                                                                               />
                                                                                   </div>
                                                                                 <div className="space-y-1.5">
-                                                                                                      <Label className="text-xs">端口</Label>
+                                                                                                      <Label className="text-xs">ç«¯å£</Label>
                                                                                                       <Input
                                                                                                                                 type="number"
                                                                                                                                 value={form.smtpPort}
@@ -616,7 +616,7 @@ export default function EmailSettingsPage() {
                                                                                   </div>
                                                             </div>
                                                             <div className="space-y-1.5">
-                                                                                <Label className="text-xs">SMTP 用户名（通常是邮箱地址）</Label>
+                                                                                <Label className="text-xs">SMTP ç¨æ·åï¼éå¸¸æ¯é®ç®±å°åï¼</Label>
                                                                                 <Input
                                                                                                         value={form.smtpUser}
                                                                                                         onChange={e => setForm(prev => ({ ...prev, smtpUser: e.target.value }))}
@@ -624,13 +624,13 @@ export default function EmailSettingsPage() {
                                                                                                       />
                                                             </div>
                                                             <div className="space-y-1.5">
-                                                                                <Label className="text-xs">SMTP 密码 / 授权码</Label>
+                                                                                <Label className="text-xs">SMTP å¯ç  / ææç </Label>
                                                                                 <div className="relative">
                                                                                                       <Input
                                                                                                                                 type={showPassword ? "text" : "password"}
                                                                                                                                 value={form.smtpPass}
                                                                                                                                 onChange={e => setForm(prev => ({ ...prev, smtpPass: e.target.value }))}
-                                                                                                                                placeholder="应用专用密码或授权码"
+                                                                                                                                placeholder="åºç¨ä¸ç¨å¯ç æææç "
                                                                                                                                 className="pr-10"
                                                                                                                               />
                                                                                                       <button
@@ -648,7 +648,7 @@ export default function EmailSettingsPage() {
                                                                                                         onCheckedChange={v => setForm(prev => ({ ...prev, smtpSecure: v }))}
                                                                                                         disabled={selectedProvider !== "custom"}
                                                                                                       />
-                                                                                <Label className="text-xs">使用 TLS/SSL 加密</Label>
+                                                                                <Label className="text-xs">ä½¿ç¨ TLS/SSL å å¯</Label>
                                                             </div>
                                           </div>
                           
@@ -660,9 +660,9 @@ export default function EmailSettingsPage() {
                                                               className="w-full"
                                                             >
                                             {verifySmtp.isPending ? (
-                                                                                  <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 验证中...</span>
+                                                                                  <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> éªè¯ä¸­...</span>
                                                                                 ) : (
-                                                                                  <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 mr-2" /> 验证 SMTP 连接</span>
+                                                                                  <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 mr-2" /> éªè¯ SMTP è¿æ¥</span>
                                                             )}
                                           </Button>
                           
@@ -670,17 +670,17 @@ export default function EmailSettingsPage() {
                                           <Accordion type="single" collapsible defaultValue={selectedProvider === "custom" ? "imap" : undefined}>
                                                             <AccordionItem value="imap" className="border rounded-lg px-3">
                                                                                 <AccordionTrigger className="text-sm font-medium py-3">
-                                                                                                      IMAP 收信设置（用于自动检测客户回信）
+                                                                                                      IMAP æ¶ä¿¡è®¾ç½®ï¼ç¨äºèªå¨æ£æµå®¢æ·åä¿¡ï¼
                                                                                   </AccordionTrigger>
                                                                                 <AccordionContent className="space-y-3 pb-4">
                                                                                                       <p className="text-xs text-muted-foreground">
                                                                                                         {selectedProvider !== "custom"
-                                                                                                                                    ? "IMAP 设置已根据邮箱类型自动填充。如需修改请切换到「自定义 SMTP」。"
-                                                                                                                                    : "请手动填写 IMAP 服务器信息，用于自动检测客户回信。"}
+                                                                                                                                    ? "IMAP è®¾ç½®å·²æ ¹æ®é®ç®±ç±»åèªå¨å¡«åãå¦éä¿®æ¹è¯·åæ¢å°ãèªå®ä¹ SMTPãã"
+                                                                                                                                    : "è¯·æå¨å¡«å IMAP æå¡å¨ä¿¡æ¯ï¼ç¨äºèªå¨æ£æµå®¢æ·åä¿¡ã"}
                                                                                                         </p>
                                                                                                       <div className="grid grid-cols-2 gap-3">
                                                                                                                               <div className="space-y-1.5">
-                                                                                                                                                        <Label className="text-xs">IMAP 服务器</Label>
+                                                                                                                                                        <Label className="text-xs">IMAP æå¡å¨</Label>
                                                                                                                                                         <Input
                                                                                                                                                                                       value={form.imapHost}
                                                                                                                                                                                       onChange={e => setForm(prev => ({ ...prev, imapHost: e.target.value }))}
@@ -689,7 +689,7 @@ export default function EmailSettingsPage() {
                                                                                                                                                                                     />
                                                                                                                                 </div>
                                                                                                                               <div className="space-y-1.5">
-                                                                                                                                                        <Label className="text-xs">端口</Label>
+                                                                                                                                                        <Label className="text-xs">ç«¯å£</Label>
                                                                                                                                                         <Input
                                                                                                                                                                                       type="number"
                                                                                                                                                                                       value={form.imapPort}
@@ -704,10 +704,10 @@ export default function EmailSettingsPage() {
                                                                                                                                                           onCheckedChange={v => setForm(prev => ({ ...prev, imapSecure: v }))}
                                                                                                                                                           disabled={selectedProvider !== "custom"}
                                                                                                                                                         />
-                                                                                                                              <Label className="text-xs">使用 TLS/SSL 加密</Label>
+                                                                                                                              <Label className="text-xs">ä½¿ç¨ TLS/SSL å å¯</Label>
                                                                                                         </div>
                                                                                                       <p className="text-[10px] text-muted-foreground/60">
-                                                                                                                              IMAP 使用与 SMTP 相同的用户名和密码进行认证
+                                                                                                                              IMAP ä½¿ç¨ä¸ SMTP ç¸åçç¨æ·ååå¯ç è¿è¡è®¤è¯
                                                                                                         </p>
                                                                                   </AccordionContent>
                                                             </AccordionItem>
@@ -716,14 +716,14 @@ export default function EmailSettingsPage() {
                             {/* Snov.io specific fields */}
                             {selectedProvider === "snovio" && (
                                               <div className="space-y-3">
-                                                                  <p className="text-sm font-medium">Snov.io API 凭证（可选，用于数据丰富）</p>
+                                                                  <p className="text-sm font-medium">Snov.io API å­è¯ï¼å¯éï¼ç¨äºæ°æ®ä¸°å¯ï¼</p>
                                                                   <div className="grid grid-cols-2 gap-3">
                                                                                         <div className="space-y-1.5">
                                                                                                                 <Label className="text-xs">Client ID</Label>
                                                                                                                 <Input
                                                                                                                                             value={form.snovioClientId}
                                                                                                                                             onChange={e => setForm(prev => ({ ...prev, snovioClientId: e.target.value }))}
-                                                                                                                                            placeholder="可选"
+                                                                                                                                            placeholder="å¯é"
                                                                                                                                           />
                                                                                           </div>
                                                                                         <div className="space-y-1.5">
@@ -732,7 +732,7 @@ export default function EmailSettingsPage() {
                                                                                                                                             type="password"
                                                                                                                                             value={form.snovioClientSecret}
                                                                                                                                             onChange={e => setForm(prev => ({ ...prev, snovioClientSecret: e.target.value }))}
-                                                                                                                                            placeholder="可选"
+                                                                                                                                            placeholder="å¯é"
                                                                                                                                           />
                                                                                           </div>
                                                                   </div>
@@ -745,22 +745,22 @@ export default function EmailSettingsPage() {
                                                                                   checked={form.isDefault}
                                                                                   onCheckedChange={v => setForm(prev => ({ ...prev, isDefault: v }))}
                                                                                 />
-                                                            <Label className="text-xs">设为默认发件邮箱</Label>
+                                                            <Label className="text-xs">è®¾ä¸ºé»è®¤åä»¶é®ç®±</Label>
                                           </div>
-                          </>>
+                          </>
                         )}
                                   </div>
                         
                                   <DialogFooter>
-                                              <Button variant="outline" onClick={() => { setShowAdd(false); resetForm(); }}>取消</Button>
+                                              <Button variant="outline" onClick={() => { setShowAdd(false); resetForm(); }}>åæ¶</Button>
                                               <Button
                                                               onClick={handleCreate}
                                                               disabled={createAccount.isPending || !selectedProvider || !form.email}
                                                             >
                                                 {createAccount.isPending ? (
-                                                                              <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> 添加中...</span>
+                                                                              <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin mr-2" /> æ·»å ä¸­...</span>
                                                                             ) : (
-                                                                              <span className="flex items-center gap-2"><Plus className="h-4 w-4 mr-2" /> 添加邮箱</span>
+                                                                              <span className="flex items-center gap-2"><Plus className="h-4 w-4 mr-2" /> æ·»å é®ç®±</span>
                                                             )}
                                               </Button>
                                   </DialogFooter>
