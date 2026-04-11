@@ -763,6 +763,12 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const data = await getLeadWithRelations(input.leadId, ctx.user.id);
         if (!data) throw new Error("Lead not found");
+        // Bug fix: only allow reply analysis when a reply is actually expected
+        const currentLeadState = data.leadState?.currentState;
+        const validStates = ['waiting_response_status', 'reply_received', 'drafting_reply_email'];
+        if (currentLeadState && !validStates.includes(currentLeadState)) {
+          throw new Error(`无法分析回复：当前订单状态为 "${currentLeadState}"，需要先将开发信发出才能处理回复。`);
+        }
         const senderContext = await buildSenderContext(ctx.user.id);
 
         const previousEmails = data.emailSequences.map(e => ({
