@@ -220,6 +220,7 @@ export const appRouter = router({
         signature: (profile as any)?.emailSignature || '',
         fontSize: (profile as any)?.emailFontSize || 14,
         fontFamily: (profile as any)?.emailFontFamily || 'Arial, sans-serif',
+        signatureLogoUrl: (profile as any)?.signatureLogoUrl || null,
       };
     }),
 
@@ -228,12 +229,14 @@ export const appRouter = router({
         signature: z.string().optional(),
         fontSize: z.number().min(10).max(24).optional(),
         fontFamily: z.string().optional(),
+        signatureLogoUrl: z.string().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         await upsertSenderProfile(ctx.user.id, {
           emailSignature: input.signature,
           emailFontSize: input.fontSize,
           emailFontFamily: input.fontFamily,
+          signatureLogoUrl: input.signatureLogoUrl,
         } as any);
         return { success: true };
       }),
