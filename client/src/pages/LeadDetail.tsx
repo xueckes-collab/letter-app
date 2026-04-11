@@ -197,7 +197,7 @@ export default function LeadDetailPage() {
       </Card>
 
       {/* Reply Input */}
-      {(currentState === 'waiting_response_status' || currentState === 'waiting_user_send' || currentState === 'waiting_user_send_followup') && (
+      {currentState === 'waiting_response_status' && (
         <Card id="reply-section">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -342,13 +342,13 @@ function ThinkingCard({ title, cards }: { title: string; cards: Array<{ title: s
 const EMAIL_STATUS_STEPS = [
   { key: 'draft', label: '草稿', color: 'text-amber-400', bgActive: 'bg-amber-500', bgInactive: 'bg-muted-foreground/30' },
   { key: 'sent', label: '已发送', color: 'text-blue-400', bgActive: 'bg-blue-500', bgInactive: 'bg-muted-foreground/30' },
-  { key: 'delivered', label: '已送达', color: 'text-emerald-400', bgActive: 'bg-emerald-500', bgInactive: 'bg-muted-foreground/30' },
   { key: 'replied', label: '已回复', color: 'text-violet-400', bgActive: 'bg-violet-500', bgInactive: 'bg-muted-foreground/30' },
 ] as const;
 
 function getStatusIndex(status?: string): number {
   if (!status) return 0;
-  const map: Record<string, number> = { draft: 0, sent: 1, delivered: 2, replied: 3 };
+  // 'delivered' state removed: SMTP has no delivery confirmation mechanism
+  const map: Record<string, number> = { draft: 0, sent: 1, replied: 2 };
   return map[status] ?? 0;
 }
 
