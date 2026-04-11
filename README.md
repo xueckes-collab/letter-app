@@ -196,3 +196,5 @@ MIT
 **快速链接：**
 - 🚀 [在线应用](https://letter-app-1fmm.onrender.com)
 - 📖 [GitHub 仓库](https://github.com/xueckes-collab/letter-app)
+
+<!-- trigger redeploy: fix signatureLogoUrl migration -->
