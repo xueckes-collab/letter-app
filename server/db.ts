@@ -1,5 +1,6 @@
 import { eq, and, desc, asc, like, or, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import {
   InsertUser, users,
   senderProfiles, InsertSenderProfile, SenderProfile,
@@ -12,13 +13,24 @@ import {
   replyAnalyses, InsertReplyAnalysis,
   leadStates, InsertLeadState,
   aiPromptSettings,
+  notifications, InsertNotification,
+  emailAccounts, InsertEmailAccount, EmailAccount,
+  automationSettings,
+  feedbacks,
 } from "../drizzle/schema";
+
 let _db: ReturnType<typeof drizzle> | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false }
+          : false,
+      });
+      _db = drizzle(pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -47,14 +59,14 @@ export async function getUserByEmail(email: string) {
 export async function createUser(data: { email: string; passwordHash: string; name?: string }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(users).values({
+  const result = await db.insert(users).values({
     email: data.email,
     passwordHash: data.passwordHash,
     name: data.name ?? data.email.split('@')[0],
     loginMethod: 'email',
     lastSignedIn: new Date(),
-  });
-  const user = await getUserByEmail(data.email);
+  }).returning({ id: users.id });
+  const user = await getUserById(result[0].id);
   if (!user) throw new Error("Failed to create user");
   return user;
 }
@@ -87,15 +99,15 @@ export async function createOrUpdateGoogleUser(data: { openId: string; email: st
     return (await getUserById(existingByEmail.id))!;
   }
 
-  await db.insert(users).values({
+  const result = await db.insert(users).values({
     openId: data.openId,
     email: data.email,
     name: data.name ?? data.email.split('@')[0],
     loginMethod: 'google',
     lastSignedIn: new Date(),
-  });
+  }).returning({ id: users.id });
 
-  const user = await getUserByEmail(data.email);
+  const user = await getUserById(result[0].id);
   if (!user) throw new Error("Failed to create Google user");
   return user;
 }
@@ -135,14 +147,14 @@ export async function upsertSenderProfile(userId: number, data: Omit<InsertSende
     await db.update(senderProfiles).set({ ...data, updatedAt: new Date() }).where(eq(senderProfiles.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(senderProfiles).values({ ...data, userId }).$returningId();
+  const result = await db.insert(senderProfiles).values({ ...data, userId }).returning({ id: senderProfiles.id });
   return result[0].id;
 }
 
 export async function createSenderAsset(data: InsertSenderAsset) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(senderAssets).values(data).$returningId();
+  const result = await db.insert(senderAssets).values(data).returning({ id: senderAssets.id });
   return result[0].id;
 }
 
@@ -152,7 +164,7 @@ export async function createSenderAsset(data: InsertSenderAsset) {
 export async function createLead(data: InsertLead) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(leads).values(data).$returningId();
+  const result = await db.insert(leads).values(data).returning({ id: leads.id });
   return result[0].id;
 }
 
@@ -220,7 +232,7 @@ export async function saveWebsiteAnalysis(data: InsertWebsiteAnalysis) {
     await db.update(websiteAnalyses).set(data).where(eq(websiteAnalyses.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(websiteAnalyses).values(data).$returningId();
+  const result = await db.insert(websiteAnalyses).values(data).returning({ id: websiteAnalyses.id });
   return result[0].id;
 }
 
@@ -232,7 +244,7 @@ export async function saveIcpMatch(data: InsertIcpMatch) {
     await db.update(icpMatches).set(data).where(eq(icpMatches.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(icpMatches).values(data).$returningId();
+  const result = await db.insert(icpMatches).values(data).returning({ id: icpMatches.id });
   return result[0].id;
 }
 
@@ -244,7 +256,7 @@ export async function saveUspMatch(data: InsertUspMatch) {
     await db.update(uspMatches).set(data).where(eq(uspMatches.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(uspMatches).values(data).$returningId();
+  const result = await db.insert(uspMatches).values(data).returning({ id: uspMatches.id });
   return result[0].id;
 }
 
@@ -254,7 +266,7 @@ export async function saveUspMatch(data: InsertUspMatch) {
 export async function createEmailSequence(data: InsertEmailSequence) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(emailSequences).values(data).$returningId();
+  const result = await db.insert(emailSequences).values(data).returning({ id: emailSequences.id });
   return result[0].id;
 }
 
@@ -276,7 +288,7 @@ export async function getEmailsByLead(leadId: number) {
 export async function createReplyAnalysis(data: InsertReplyAnalysis) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(replyAnalyses).values(data).$returningId();
+  const result = await db.insert(replyAnalyses).values(data).returning({ id: replyAnalyses.id });
   return result[0].id;
 }
 
@@ -298,7 +310,7 @@ export async function upsertLeadState(leadId: number, userId: number, data: Part
     await db.update(leadStates).set({ ...data, updatedAt: new Date() }).where(eq(leadStates.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(leadStates).values({ leadId, userId, ...data } as InsertLeadState).$returningId();
+  const result = await db.insert(leadStates).values({ leadId, userId, ...data } as InsertLeadState).returning({ id: leadStates.id });
   return result[0].id;
 }
 
@@ -317,12 +329,10 @@ export async function updateLeadCompanyInfo(leadId: number, companyName: string,
 // ============================================================
 // NOTIFICATION HELPERS
 // ============================================================
-import { notifications, InsertNotification } from "../drizzle/schema";
-
 export async function createNotification(data: InsertNotification) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(notifications).values(data).$returningId();
+  const result = await db.insert(notifications).values(data).returning({ id: notifications.id });
   return result[0].id;
 }
 
@@ -433,8 +443,6 @@ export async function getAiPromptSetting(promptKey: string) {
 // ============================================================
 // EMAIL ACCOUNTS
 // ============================================================
-import { emailAccounts, InsertEmailAccount, EmailAccount } from "../drizzle/schema";
-
 export async function createEmailAccount(data: InsertEmailAccount): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -445,7 +453,7 @@ export async function createEmailAccount(data: InsertEmailAccount): Promise<numb
       .where(eq(emailAccounts.userId, data.userId));
   }
 
-  const result = await db.insert(emailAccounts).values(data).$returningId();
+  const result = await db.insert(emailAccounts).values(data).returning({ id: emailAccounts.id });
   return result[0].id;
 }
 
@@ -548,8 +556,6 @@ export async function getDraftEmailsForLeads(leadIds: number[], userId: number) 
 // ============================================================
 // AUTOMATION SETTINGS
 // ============================================================
-import { automationSettings } from "../drizzle/schema";
-
 export async function getAutomationSettings(userId: number) {
   const db = await getDb();
   if (!db) return null;
@@ -602,8 +608,6 @@ export async function upsertAutomationSettings(userId: number, data: {
 // ============================================================
 // FEEDBACKS
 // ============================================================
-import { feedbacks } from "../drizzle/schema";
-
 export async function createFeedback(userId: number, data: {
   rating: number;
   content: string;
@@ -611,15 +615,14 @@ export async function createFeedback(userId: number, data: {
 }) {
   const db = await getDb();
   if (!db) return null;
-  const [result] = await db.insert(feedbacks).values({
+  const result = await db.insert(feedbacks).values({
     userId,
     rating: data.rating,
     content: data.content,
     category: data.category || 'general',
     status: 'pending',
-  });
-  const id = (result as any).insertId;
-  const rows = await db.select().from(feedbacks).where(eq(feedbacks.id, id)).limit(1);
+  }).returning({ id: feedbacks.id });
+  const rows = await db.select().from(feedbacks).where(eq(feedbacks.id, result[0].id)).limit(1);
   return rows[0] || null;
 }
 
