@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import {
   Loader2, Mail, Plus, Trash2, Star, CheckCircle2,
-  ArrowLeft, Shield, Settings, Eye, EyeOff, PenLine, Type
+  ArrowLeft, Shield, Settings, Eye, EyeOff, PenLine, Type, ImageIcon, X
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -67,6 +67,7 @@ export default function EmailSettingsPage() {
   const [signature, setSignature] = useState('');
   const [fontSize, setFontSize] = useState(14);
   const [fontFamily, setFontFamily] = useState('Arial, sans-serif');
+  const [signatureLogoUrl, setSignatureLogoUrl] = useState<string | null>(null);
   const [signatureSaving, setSignatureSaving] = useState(false);
 
   const emailSettings = trpc.profile.getEmailSettings.useQuery(undefined, {
@@ -92,7 +93,7 @@ export default function EmailSettingsPage() {
 
   const handleSaveSignature = () => {
     setSignatureSaving(true);
-    updateEmailSettingsMutation.mutate({ signature, fontSize, fontFamily });
+    updateEmailSettingsMutation.mutate({ signature, fontSize, fontFamily, signatureLogoUrl });
   };
 
   const [form, setForm] = useState({
@@ -291,6 +292,51 @@ export default function EmailSettingsPage() {
             <p className="text-xs text-muted-foreground">签名将自动附加在每封发出的邮件末尾</p>
           </div>
 
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5 text-sm font-medium">
+              <ImageIcon className="h-4 w-4" />
+              签名 Logo（可选）
+            </Label>
+            <div className="flex items-center gap-3">
+              {signatureLogoUrl ? (
+                <div className="relative inline-block">
+                  <img src={signatureLogoUrl} alt="Logo" className="h-12 max-w-[200px] object-contain rounded border" />
+                  <button
+                    type="button"
+                    onClick={() => setSignatureLogoUrl(null)}
+                    className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center hover:opacity-80"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 px-3 py-2 border border-dashed rounded-md cursor-pointer hover:bg-accent/50 text-sm text-muted-foreground">
+                  <ImageIcon className="h-4 w-4" />
+                  上传图片（PNG / JPG / SVG，建议高度 40-60px）
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 2 * 1024 * 1024) {
+                        toast.error("图片大小不能超过 2MB");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        setSignatureLogoUrl(ev.target?.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">Logo 将显示在签名文字上方，以 base64 嵌入邮件</p>
+          </div>
+
           <Separator />
 
           <div className="grid grid-cols-2 gap-4">
@@ -332,6 +378,9 @@ export default function EmailSettingsPage() {
               className="p-3 rounded-md border bg-muted/30 min-h-[60px]"
               style={{ fontSize: fontSize + 'px', fontFamily }}
             >
+              {signatureLogoUrl && (
+                <img src={signatureLogoUrl} alt="Logo" className="h-10 max-w-[180px] object-contain mb-2 block" />
+              )}
               {signature ? (
                 <pre className="whitespace-pre-wrap m-0" style={{ fontFamily, fontSize }}>{signature}</pre>
               ) : (
