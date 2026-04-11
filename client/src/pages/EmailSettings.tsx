@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { Loader2, Mail, Plus, Trash2, Star, CheckCircle2, ArrowLeft, Shield, Settings, Eye, EyeOff, PenLine, Type, ImageIcon, X } from "lucide-react";
 import {
-    Dialog,
+    Dialog
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -768,4 +768,4 @@ export default function EmailSettingsPage() {
                 </Dialog>
           </div>
         );
-}</></div>
+}
