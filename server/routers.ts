@@ -31,7 +31,7 @@ import { getStrategyForRound } from "./services/follow-up-strategies";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { validateSnovioCredentials, domainSearch } from "./services/snovio";
-import { sendEmail, batchSendEmails, verifySMTP, SMTP_PRESETS } from "./services/email-sender";
+import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services/email-sender";
 
 // Helper: build sender context string for LLM
 async function buildSenderContext(userId: number): Promise<string> {
@@ -631,7 +631,7 @@ export const appRouter = router({
         smtpSecure: z.boolean(),
       }))
       .mutation(async ({ input }) => {
-        return verifySMTP(input);
+        return verifySmtp(input);
       }),
 
     setDefault: protectedProcedure

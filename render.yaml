@@ -4,8 +4,8 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: pnpm install && pnpm build && pnpm drizzle-kit generate
-    startCommand: pnpm drizzle-kit migrate && node dist/index.js
+    buildCommand: pnpm install && pnpm build
+    startCommand: pnpm drizzle-kit push && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
