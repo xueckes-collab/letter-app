@@ -39,6 +39,7 @@ export const senderProfiles = mysqlTable("sender_profiles", {
     emailSignature: text("emailSignature"),
     emailFontSize: int("emailFontSize").default(14),
     emailFontFamily: varchar("emailFontFamily", { length: 100 }).default("Arial, sans-serif"),
+  signatureLogoUrl: text("signatureLogoUrl"),
 });
 
 export type SenderProfile = typeof senderProfiles.$inferSelect;
