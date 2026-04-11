@@ -1,4 +1,4 @@
-import { trpc } from "@/lib/trpc";
+import { trpc } from "@/lib/trpc"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -248,7 +248,7 @@ export default function EmailSettingsPage() {
         return (
                 <div className="flex items-center justify-center h-64">
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>div>
+                </div>
               );
   }
   
