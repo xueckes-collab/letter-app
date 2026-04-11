@@ -198,3 +198,5 @@ MIT
 - 📖 [GitHub 仓库](https://github.com/xueckes-collab/letter-app)
 
 <!-- trigger redeploy: fix signatureLogoUrl migration -->
+
+<!-- trigger redeploy 2: apply 0011_signature_logo.sql migration -->
