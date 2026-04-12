@@ -54,7 +54,7 @@ pnpm build
 
 - **前端** - React 19 + Tailwind CSS 4 + Vite
 - **后端** - Node.js + Express 4 + tRPC 11
-- **数据库** - MySQL (via Drizzle ORM)
+- **数据库** - PostgreSQL (via Drizzle ORM)
 - **认证** - 自托管 JWT（邮箱+密码）
 - **AI** - OpenAI API
 - **邮件** - Snov.io SMTP
@@ -89,7 +89,7 @@ letter-app/
 
 ```env
 # 数据库（必填）
-DATABASE_URL=mysql://user:password@host:port/dbname
+DATABASE_URL=postgresql://user:password@host:port/dbname
 
 # 认证（必填）- 生成命令: openssl rand -base64 32
 JWT_SECRET=your-super-secret-jwt-key-min-32-chars
