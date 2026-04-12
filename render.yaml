@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: free
     buildCommand: pnpm install && pnpm build
-    startCommand: pnpm drizzle-kit push && node dist/index.js
+    startCommand: pnpm drizzle-kit push --force && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
