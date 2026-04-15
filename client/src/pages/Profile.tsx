@@ -4,9 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Building2, Package, Award, Clock, FileUp, Trash2 } from "lucide-react";
+import {
+  Loader2, Save, Building2, Package, Award, Clock, FileUp, Trash2,
+  Upload, CheckCircle2, XCircle,
+} from "lucide-react";
 
 export default function ProfilePage() {
   const profile = trpc.profile.get.useQuery();
@@ -14,6 +17,18 @@ export default function ProfilePage() {
     onSuccess: () => { toast.success('资料已保存'); profile.refetch(); },
     onError: (err) => toast.error(err.message),
   });
+
+  const deleteAsset = trpc.profile.deleteAsset.useMutation({
+    onSuccess: () => { toast.success('文件已删除'); profile.refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<
+    { file: File; status: 'pending' | 'uploading' | 'done' | 'error'; progress?: string }[]
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isUploading = uploadQueue.some((item) => item.status === 'uploading');
   const uploadAsset = trpc.profile.uploadAsset.useMutation({
     onSuccess: () => { toast.success('文件已上传'); profile.refetch(); },
     onError: (err) => toast.error(err.message),
@@ -39,23 +54,51 @@ export default function ProfilePage() {
     }
   }, [profile.data]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 100 * 1024 * 1024) { toast.error('文件大小不能超过 100MB'); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      uploadAsset.mutate({
-        fileName: file.name,
-        mimeType: file.type,
-        fileSize: file.size,
-        fileBase64: base64,
+const uploadSingleFile = useCallback(async (file, queueIndex) => {
+    if (file.size > 100 * 1024 * 1024) {
+      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'error', progress: '超过 100MB' } : item));
+      return;
+    }
+    setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'uploading', progress: '读取中...' } : item));
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('文件读取失败'));
+        reader.readAsDataURL(file);
       });
-    };
-    reader.readAsDataURL(file);
+      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, progress: '上传中...' } : item));
+      await uploadAsset.mutateAsync({ fileName: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size, fileBase64: base64 });
+      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'done', progress: '完成' } : item));
+    } catch (err) {
+      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'error', progress: err?.message || '上传失败' } : item));
+    }
+  }, [uploadAsset]);
+
+  const handleFiles = useCallback(async (files) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+    const startIndex = uploadQueue.length;
+    const newItems = fileArray.map((file) => ({ file, status: 'pending', progress: '等待中...' }));
+    setUploadQueue((prev) => [...prev, ...newItems]);
+    for (let i = 0; i < fileArray.length; i++) { await uploadSingleFile(fileArray[i], startIndex + i); }
+    setTimeout(() => { setUploadQueue((prev) => prev.filter((item) => item.status !== 'done')); }, 3000);
+  }, [uploadQueue.length, uploadSingleFile]);
+
+  const handleFileChange = useCallback((e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) handleFiles(files);
     e.target.value = '';
-  };
+  }, [handleFiles]);
+
+  const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); }, []);
+  const handleDragEnter = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); if (e.currentTarget === e.target) setIsDragging(false); }, []);
+  const handleDrop = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); const files = e.dataTransfer.files; if (files && files.length > 0) handleFiles(files); }, [handleFiles]);
+
+  const handleDeleteAsset = useCallback((assetId) => {
+    if (window.confirm('确定要删除这个文件吗？')) { deleteAsset.mutate({ assetId }); }
+  }, [deleteAsset]);
 
   if (profile.isLoading) {
     return (
@@ -203,44 +246,55 @@ export default function ProfilePage() {
         </Button>
       </form>
 
-      {/* Assets Section */}
+{/* Assets Section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileUp className="h-5 w-5 text-primary" />
             素材文件
           </CardTitle>
-          <CardDescription>上传产品手册、认证文件等，AI 会提取内容用于邮件生成</CardDescription>
+          <CardDescription>上传产品手册、认证文件、PPT 等任意格式文件，AI 会自动提取内容用于邮件生成</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label
-              htmlFor="file-upload"
-              className="flex items-center justify-center border-2 border-dashed rounded-lg p-8 cursor-pointer hover:border-primary/50 transition-colors"
-            >
-              {uploadAsset.isPending ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              ) : (
-                <div className="text-center">
-                  <FileUp className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">点击上传文件（PDF、图片等，最大 100MB）</p>
-                </div>
-              )}
-            </Label>
-            <input id="file-upload" type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" />
+          <div onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()}
+            className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-8 cursor-pointer transition-all duration-200 ${isDragging ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'}`}>
+            {isUploading ? (<Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />) : (<Upload className={`h-8 w-8 mb-2 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />)}
+            <p className={`text-sm font-medium ${isDragging ? 'text-primary' : 'text-muted-foreground'}`}>
+              {isDragging ? '松开鼠标即可上传' : '拖拽文件到此处，或点击选择文件'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">支持所有文件格式（PDF、Word、PPT、图片等），单文件最大 100MB，支持批量上传</p>
           </div>
-
+          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} multiple />
+          {uploadQueue.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-muted-foreground">上传进度</p>
+              {uploadQueue.map((item, index) => (
+                <div key={`queue-${index}`} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50 text-sm">
+                  {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+                  {item.status === 'done' && <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />}
+                  {item.status === 'error' && <XCircle className="h-4 w-4 text-destructive shrink-0" />}
+                  {item.status === 'pending' && <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
+                  <span className="truncate flex-1">{item.file.name}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{item.progress}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {profile.data?.assets && profile.data.assets.length > 0 && (
             <div className="space-y-2">
-              {profile.data.assets.map((asset: any) => (
-                <div key={asset.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50">
+              <p className="text-sm font-medium text-muted-foreground">已上传 {profile.data.assets.length} 个文件</p>
+              {profile.data.assets.map((asset) => (
+                <div key={asset.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 group">
                   <div className="flex items-center gap-3 min-w-0">
                     <FileUp className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{asset.fileName}</p>
-                      <p className="text-xs text-muted-foreground">{asset.fileSize ? `${(asset.fileSize / 1024).toFixed(1)} KB` : ''}</p>
+                      {asset.fileSize && (<p className="text-xs text-muted-foreground">{(asset.fileSize / 1024).toFixed(1)} KB</p>)}
                     </div>
                   </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive" onClick={() => handleDeleteAsset(asset.id)} disabled={deleteAsset.isPending}>
+                    {deleteAsset.isPending ? (<Loader2 className="h-4 w-4 animate-spin" />) : (<Trash2 className="h-4 w-4" />)}
+                  </Button>
                 </div>
               ))}
             </div>
