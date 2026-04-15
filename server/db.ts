@@ -674,3 +674,26 @@ export async function seedAdminUser(adminEmail: string) {
     console.warn('[Seed] Failed to set admin role:', err);
   }
 }
+export async function getSenderAssetById(assetId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db
+    .select()
+    .from(senderAssets)
+    .where(and(eq(senderAssets.id, assetId), eq(senderAssets.userId, userId)))
+    .limit(1);
+  return result[0] || null;
+}
+
+export async function deleteSenderAsset(
+  assetId: number,
+  userId: number
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db
+    .delete(senderAssets)
+    .where(and(eq(senderAssets.id, assetId), eq(senderAssets.userId, userId)))
+    .returning({ id: senderAssets.id });
+  return result.length > 0;
+}
