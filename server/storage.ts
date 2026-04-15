@@ -54,3 +54,42 @@ export async function storageGet(
   const url = publicBase.replace(/\/$/, "") + "/" + key;
   return { key, url };
 }
+/**
+ * Delete a file from S3-compatible storage.
+ */
+export async function storageDelete(key: string): Promise<void> {
+  const { s3Endpoint, s3AccessKeyId, s3SecretAccessKey, s3BucketName } = ENV;
+
+  if (!s3Endpoint || !s3AccessKeyId || !s3SecretAccessKey) {
+    throw new Error(
+      "S3 storage not configured. Set S3_ENDPOINT, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET_NAME env vars."
+    );
+  }
+
+  try {
+    const { S3Client, DeleteObjectCommand } = await import(
+      "@aws-sdk/client-s3"
+    );
+    const client = new S3Client({
+      endpoint: s3Endpoint,
+      region: "auto",
+      credentials: {
+        accessKeyId: s3AccessKeyId,
+        secretAccessKey: s3SecretAccessKey,
+      },
+      forcePathStyle: true,
+    });
+
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: s3BucketName,
+        Key: key,
+      })
+    );
+  } catch (importError) {
+    throw new Error(
+      "S3 delete failed. Install @aws-sdk/client-s3: pnpm add @aws-sdk/client-s3. Error: " +
+        importError
+    );
+  }
+}
