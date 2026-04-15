@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getSchedulerHealth } from "./services/scheduler";
 import {
   getSenderProfile, upsertSenderProfile, createSenderAsset,
+  getSenderAssetById, deleteSenderAsset,
   createLead, getLeadsByUser, getLeadById, getLeadWithRelations,
   saveWebsiteAnalysis, saveIcpMatch, saveUspMatch,
   createEmailSequence, updateEmailSequence, getEmailsByLead,
@@ -28,7 +29,7 @@ import { notifyOwner } from "./_core/notification";
 import { scrapeWebsite, formatScrapingResults } from "./services/scraper";
 import { analyzeWebsite, matchICP, matchUSP, generateEmail, analyzeReply } from "./services/llm-engine";
 import { getStrategyForRound } from "./services/follow-up-strategies";
-import { storagePut } from "./storage";
+import { storagePut, storageDelete } from "./storage";
 import { nanoid } from "nanoid";
 import { validateSnovioCredentials, domainSearch } from "./services/snovio";
 import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services/email-sender";
@@ -211,6 +212,34 @@ export const appRouter = router({
           fileSize: input.fileSize || null, fileUrl: url, fileKey, extractedText,
         });
         return { success: true, assetId, url };
+      }),
+
+    deleteAsset: protectedProcedure
+      .input(z.object({ assetId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        // 1. Find asset record, ensure it belongs to current user
+        const asset = await getSenderAssetById(input.assetId, ctx.user.id);
+        if (!asset) {
+          throw new Error("Asset not found or access denied");
+        }
+
+        // 2. Delete file from S3
+        try {
+          if (asset.fileKey) {
+            await storageDelete(asset.fileKey);
+          }
+        } catch (e) {
+          console.warn("[Asset] S3 delete failed:", e);
+          // Continue to delete DB record even if S3 delete fails
+        }
+
+        // 3. Delete record from database
+        const deleted = await deleteSenderAsset(input.assetId, ctx.user.id);
+        if (!deleted) {
+          throw new Error("Failed to delete asset record");
+        }
+
+        return { success: true };
       }),
 
     // Email signature and formatting
