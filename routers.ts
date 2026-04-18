@@ -288,7 +288,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         email: z.string().email(),
-        website: z.string().min(1),
+        website: z.string().url().or(z.string().min(1)),
         contactName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -298,9 +298,12 @@ export const appRouter = router({
           status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
         });
 
+        try {
         const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
         const state = await getLeadState(leadId);
+          if (!state) throw new Error("Failed to get lead state");
         const lead = await getLeadById(leadId, ctx.user.id);
+          if (!lead) throw new Error("Lead not found after creation");
 
         return {
           lead, state,
@@ -312,11 +315,15 @@ export const appRouter = router({
             { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
           ]),
         };
+        } catch (pipelineError) {
+          const fallbackLead = { id: leadId, status: "pending" };
+          return { lead: fallbackLead, pipelineError: String(pipelineError) };
+        }
       }),
 
     bulkImport: protectedProcedure
       .input(z.object({
-        rows: z.string(),
+        rows: z.string().max(500000),
         autoGenerate: z.boolean().optional().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
