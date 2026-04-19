@@ -316,7 +316,7 @@ export const appRouter = router({
           ]),
         };
         } catch (pipelineError) {
-          const fallbackLead = { id: leadId, status: "pending" };
+          const fallbackLead = { id: leadId, status: "pending", website: input.website, email: input.email };
           return { lead: fallbackLead, pipelineError: String(pipelineError) };
         }
       }),

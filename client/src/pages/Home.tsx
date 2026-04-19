@@ -203,7 +203,7 @@ function QuickAddLead() {
 
   const createLead = trpc.leads.create.useMutation({
     onSuccess: (data) => {
-      toast.success(`已完成 ${data.lead?.companyName || data.lead?.website} 的首封草稿`);
+      if (data.pipelineError) { toast.warning(`客户已创建，但邮件生成失败`); } else { toast.success(`已完成 ${data.lead?.companyName || data.lead?.website || data.lead?.email || '该客户'} 的首封草稿`); }
       utils.leads.list.invalidate();
       if (data.lead?.id) setLocation(`/leads/${data.lead.id}`);
     },
