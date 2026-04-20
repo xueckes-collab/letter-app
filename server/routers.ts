@@ -97,9 +97,51 @@ async function processLeadPipeline(leadId: number, userId: number, email: string
     subject: emailResult.subject, body: emailResult.body,
     strategyType: 'initial_warm', stageNumber: 0,
     thinkingSummary: [
-      { title: 'Website Analysis', items: [waResult.rawSummary, `Industry: ${waResult.industry}`, `Intent Score: ${waResult.purchaseIntentScore}/10`] },
-      { title: 'ICP Match', items: [`Type: ${icpResult.icpName}`, `Pain Points: ${(icpResult.painPoints || []).join(', ')}`] },
-      { title: 'USP Selection', items: [`Primary: ${uspResult.primaryUsp}`, `Why: ${uspResult.whyFit}`] },
+      {
+        title: '🔍 网站深度分析',
+        items: [
+          `📋 公司概况：${waResult.rawSummary}`,
+          `🏭 行业：${waResult.industry} | 商业模式：${waResult.businessModel}`,
+          `📊 市场定位：${waResult.marketPosition}`,
+          `🎯 采购意图评分：${waResult.purchaseIntentScore}/10`,
+          `👤 买家画像：${(waResult as any).buyerPersona || '分析中...'}`,
+          `📡 关键业务信号：${(waResult.websiteSignals || []).slice(0, 3).join('；')}`,
+          `🔥 触发事件：${(waResult.triggerEvents || []).slice(0, 3).join('；')}`,
+          `🪝 邮件钩子机会：${((waResult as any).hookOpportunities || []).slice(0, 2).join('；')}`,
+        ],
+      },
+      {
+        title: '🎯 客户画像匹配',
+        items: [
+          `📂 客户类型：${icpResult.icpName}`,
+          `👥 关键决策人：${(icpResult.buyerRoles || []).slice(0, 2).join('、')}`,
+          `😰 核心痛点：${(icpResult.painPoints || []).slice(0, 3).join('；')}`,
+          `💭 买家心理：${(icpResult as any).buyerMindset || '分析中...'}`,
+          `🤫 潜在顾虑：${((icpResult as any).whatTheyWontTell || []).slice(0, 2).join('；')}`,
+          `🗣️ 沟通风格：${(icpResult as any).communicationStyle || icpResult.decisionStyle}`,
+          `💡 销售角度：${(icpResult.salesAngles || []).slice(0, 2).map((a: any) => a.angle).join('；')}`,
+        ],
+      },
+      {
+        title: '💎 卖点精准匹配',
+        items: [
+          `⭐ 主打卖点：${uspResult.primaryUsp}`,
+          `🔗 辅助卖点：${uspResult.secondaryUsp}`,
+          `✅ 匹配原因：${uspResult.whyFit}`,
+          `📄 证据支撑：${(uspResult.proofPoints || []).slice(0, 2).join('；')}`,
+          `🚫 避免提及：${((uspResult as any).avoidPoints || []).slice(0, 2).join('；')}`,
+        ],
+      },
+      {
+        title: '✉️ 邮件策略',
+        items: [
+          `🪝 开场钩子：${uspResult.emailAngle?.hook || ''}`,
+          `💬 价值主张：${uspResult.emailAngle?.valueStatement || ''}`,
+          `👆 行动号召：${uspResult.emailAngle?.cta || ''}`,
+          `🔑 非群发证据：${(uspResult as any).notMassMailProof || ''}`,
+          `🎯 回复触发点：${(uspResult as any).replyTrigger || ''}`,
+        ],
+      },
     ],
     status: 'draft',
   });
