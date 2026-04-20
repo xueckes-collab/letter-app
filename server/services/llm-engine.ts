@@ -10,7 +10,7 @@
  * - 像人说话，不像机器人发模板
  */
 
-import { invokeGPT, gptJSON } from "./gpt";
+import { invokeGPT, gptJSON } from "./gpt"
 import { getAiPromptSetting } from "../db";
 
 // ============================================================
@@ -389,7 +389,7 @@ export async function generateEmail(params: {
 
 ### 写作框架
 1. **钩子句**（1句）：提到对方业务的一个具体细节，证明你做了功课
-2. **桥接句**（1-2句）：从他们的情况自然过渡到你能提供的价值
+2.=> ` **桥接句**（1-2句）：从他们的情况自然过渡到你能提供的价值
 3. **价值锤**（1-2句）：用一个USP+具体数据说明你能解决什么问题
 4. **信任点**（0-1句）：一个简短的证据（认证/数字/案例），不是自吹
 5. **CTA**（1句）：一个具体的、低门槛的下一步
@@ -421,7 +421,7 @@ ${senderContext}`;
 ${JSON.stringify(followupStrategy, null, 2)}
 
 已发邮件（不要重复同样的角度）：
-${previousEmails?.map((e, i) => \`第${i + 1}封 (${e.type}): 主题: ${e.subject}\`).join('\n')}
+${previousEmails?.map((e, i) => `第${i + 1}封 (${e.type}): 主题: ${e.subject}`).join('\n')}
 
 跟进铁律：
 - 绝不"just checking in"或"following up"——每次都要带新价值
