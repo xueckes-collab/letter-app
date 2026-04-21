@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
 import {
   Globe, Mail, ArrowRight, Loader2, Building2, MapPin, Search, X,
-  FileEdit, Send, CheckCircle, MessageCircle, Clock
+  FileEdit, Send, CheckCircle, MessageCircle, Clock, Trash2
 } from "lucide-react";
 
 const stateLabels: Record<string, string> = {
@@ -50,6 +50,16 @@ export default function LeadsPage() {
   const { data: leads, isLoading } = trpc.leads.list.useQuery();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const utils = trpc.useUtils();
+  const deleteManyMutation = trpc.leads.deleteMany.useMutation({
+    onSuccess: () => {
+      utils.leads.list.invalidate();
+      setSelectedLeads(new Set());
+      setShowDeleteConfirm(false);
+    },
+  });
 
   const filteredLeads = useMemo(() => {
     if (!leads) return [];
@@ -131,7 +141,16 @@ export default function LeadsPage() {
         </Button>
       </div>
 
-      {/* Search & Filter */}
+      {selectedLeads.size > 0 && (
+          <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-2">
+            <span className="text-sm font-medium">已选择 {selectedLeads.size} 个客户</span>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedLeads(new Set())}>取消选择</Button>
+            <Button variant="ghost" size="sm" onClick={() => { const allIds = new Set(filteredLeads.map((l: any) => l.id)); setSelectedLeads(allIds); }}>全选当前</Button>
+            <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}><Trash2 className="mr-1 h-4 w-4" />删除所选</Button>
+          </div>
+        )}
+
+        {/* Search & Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -201,6 +220,7 @@ export default function LeadsPage() {
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <input type="checkbox" className="h-4 w-4 shrink-0" checked={selectedLeads.has(lead.id)} onChange={() => { const next = new Set(selectedLeads); if (next.has(lead.id)) next.delete(lead.id); else next.add(lead.id); setSelectedLeads(next); }} onClick={(e) => e.stopPropagation()} />
                       <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                         <Building2 className="h-5 w-5 text-primary" />
                       </div>
@@ -247,6 +267,18 @@ export default function LeadsPage() {
               </Card>
             );
           })}
+        </div>
+      )}
+{showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-lg" onClick={(e: any) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2">确认删除</h3>
+            <p className="text-muted-foreground mb-4">确定要删除选中的 {selectedLeads.size} 个客户吗？此操作不可撤销。</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>取消</Button>
+              <Button variant="destructive" onClick={() => deleteManyMutation.mutate({ leadIds: Array.from(selectedLeads) })} disabled={deleteManyMutation.isPending}>{deleteManyMutation.isPending ? '删除中...' : '确认删除'}</Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

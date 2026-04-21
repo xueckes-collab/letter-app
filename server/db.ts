@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, like, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, like, or, sql, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -696,4 +696,28 @@ export async function deleteSenderAsset(
     .where(and(eq(senderAssets.id, assetId), eq(senderAssets.userId, userId)))
     .returning({ id: senderAssets.id });
   return result.length > 0;
+}
+
+// ============================================================
+// DELETE LEADS BY IDS (batch delete)
+// ============================================================
+export async function deleteLeadsByIds(leadIds: number[], userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Delete related data first (foreign key constraints)
+  await db.delete(replyAnalyses).where(inArray(replyAnalyses.leadId, leadIds));
+  await db.delete(emailSequences).where(inArray(emailSequences.leadId, leadIds));
+  await db.delete(uspMatches).where(inArray(uspMatches.leadId, leadIds));
+  await db.delete(icpMatches).where(inArray(icpMatches.leadId, leadIds));
+  await db.delete(websiteAnalyses).where(inArray(websiteAnalyses.leadId, leadIds));
+  await db.delete(leadStates).where(inArray(leadStates.leadId, leadIds));
+
+  // Delete the leads themselves
+  const result = await db
+    .delete(leads)
+    .where(and(inArray(leads.id, leadIds), eq(leads.userId, userId)))
+    .returning({ id: leads.id });
+
+  return result.length;
 }

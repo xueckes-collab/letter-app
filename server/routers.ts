@@ -22,7 +22,7 @@ import {
   getDraftEmailsForLeads,
   getAutomationSettings, upsertAutomationSettings,
   createFeedback, getFeedbacksByUser, getAllFeedbacks,
-  updateFeedbackAnalysis, deleteFeedback, getDb,
+  updateFeedbackAnalysis, deleteFeedback, getDb, deleteLeadsByIds,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -165,7 +165,7 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
- 
+
 
     // Manually update email content (title and body)
     updateEmailContent: protectedProcedure
@@ -183,7 +183,7 @@ export const appRouter = router({
       }),
 
     googleEnabled: publicProcedure.query(() => ({ enabled: Boolean(process.env.GOOGLE_CLIENT_ID) })),
- }),
+  }),
 
   // ============================================================
   // SENDER PROFILE
@@ -236,10 +236,12 @@ export const appRouter = router({
             const result = await invokeLLM({
               messages: [
                 { role: "system", content: "Extract all text content from this document. Return the raw text only." },
-                { role: "user", content: [
-                  { type: "text", text: `Extract text from this ${isPdf ? 'PDF' : 'image'} file: ${input.fileName}` },
-                  ...(isImage ? [{ type: "image_url" as const, image_url: { url } }] : [{ type: "file_url" as const, file_url: { url, mime_type: "application/pdf" as const } }]),
-                ]},
+                {
+                  role: "user", content: [
+                    { type: "text", text: `Extract text from this ${isPdf ? 'PDF' : 'image'} file: ${input.fileName}` },
+                    ...(isImage ? [{ type: "image_url" as const, image_url: { url } }] : [{ type: "file_url" as const, file_url: { url, mime_type: "application/pdf" as const } }]),
+                  ]
+                },
               ],
             });
             extractedText = result.choices[0]?.message?.content as string || null;
@@ -341,22 +343,22 @@ export const appRouter = router({
         });
 
         try {
-        const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
-        const state = await getLeadState(leadId);
+          const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
+          const state = await getLeadState(leadId);
           if (!state) throw new Error("Failed to get lead state");
-        const lead = await getLeadById(leadId, ctx.user.id);
+          const lead = await getLeadById(leadId, ctx.user.id);
           if (!lead) throw new Error("Lead not found after creation");
 
-        return {
-          lead, state,
-          email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
-          thinkingCards: buildThinkingCards([
-            { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
-            { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
-            { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
-            { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
-          ]),
-        };
+          return {
+            lead, state,
+            email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
+            thinkingCards: buildThinkingCards([
+              { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
+              { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
+              { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
+              { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
+            ]),
+          };
         } catch (pipelineError) {
           const fallbackLead = { id: leadId, status: "pending", website: input.website, email: input.email };
           return { lead: fallbackLead, pipelineError: String(pipelineError) };
@@ -402,6 +404,13 @@ export const appRouter = router({
           } catch { failedCount++; }
         }
         return { successCount, failedCount, generatedCount, batchId, importedLeadIds };
+      }),
+
+    deleteMany: protectedProcedure
+      .input(z.object({ leadIds: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        const count = await deleteLeadsByIds(input.leadIds, ctx.user.id);
+        return { success: true, deletedCount: count };
       }),
   }),
 
@@ -475,7 +484,7 @@ export const appRouter = router({
       return getLeadsReadyForFollowUp(ctx.user.id);
     }),
 
-        // Import pre-parsed leads from Excel file
+    // Import pre-parsed leads from Excel file
     excelBulkImportParsed: protectedProcedure
       .input(z.object({
         leads: z.array(z.object({
@@ -515,7 +524,7 @@ export const appRouter = router({
         };
       }),
 
-// Generate follow-up emails for multiple leads
+    // Generate follow-up emails for multiple leads
     generateFollowUps: protectedProcedure
       .input(z.object({ leadIds: z.array(z.number()) }))
       .mutation(async ({ ctx, input }) => {
@@ -1112,14 +1121,14 @@ export const appRouter = router({
         };
         const items = input.status
           ? await db.select(cols).from(esTable)
-              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
-              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
-              .where(eq(esTable.status, input.status))
-              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset)
+            .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+            .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+            .where(eq(esTable.status, input.status))
+            .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset)
           : await db.select(cols).from(esTable)
-              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
-              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
-              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset);
+            .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+            .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+            .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset);
         return { items, total: items.length };
       }),
 
