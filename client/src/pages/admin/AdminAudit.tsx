@@ -69,7 +69,7 @@ const MOCK_EMAIL_LOGS: AuditEntry[] = [
   { id: 203, ts: randomDate(0.6), operator: USERS[2], operatorRole: "user", action: "批量发送",    target: "15 封邮件",            detail: "批量发送完成，成功 14 封，失败 1 封",  category: "email", result: "warn"    },
   { id: 204, ts: randomDate(1),   operator: USERS[0], operatorRole: "user", action: "检测到回复",  target: "prospect@buyer.com",  detail: "客户回复了邮件，已触发回复分析",       category: "email", result: "success" },
   { id: 205, ts: randomDate(1.2), operator: "system",  operatorRole: "system", action: "自动跟进", target: "client2@corp.com",    detail: "调度器触发自动跟进，第 2 轮",           category: "email", result: "success" },
-  { id: 206, ts: randomDate(2),   operator: USERS[3], operatorRole: "user", action: "AI 生成邮件", target: "lead#432",            detail: "GPT-4o 生成开发信，耗时 3.2s",          category: "email", result: "success" },
+  { id: 206, ts: randomDate(2),   operator: USERS[3], operatorRole: "user", action: "AI 生成邮件", target: "lead#432",            detail: "GPT-5.5 生成开发信，耗时 3.2s",          category: "email", result: "success" },
   { id: 207, ts: randomDate(3),   operator: USERS[1], operatorRole: "user", action: "修改邮件",    target: "Email #789",          detail: "用户手动编辑了邮件标题和正文",          category: "email", result: "success" },
   { id: 208, ts: randomDate(4),   operator: "system",  operatorRole: "system", action: "发送超时", target: "Email #812",          detail: "SMTP 连接超时，任务标记为 failed",      category: "email", result: "fail"    },
 ].sort((a, b) => b.ts.getTime() - a.ts.getTime());

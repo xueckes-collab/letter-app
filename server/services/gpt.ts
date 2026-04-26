@@ -1,6 +1,6 @@
 /**
  * GPT Service - Direct OpenAI API integration for intelligent email generation.
- * Uses GPT-4o for chain-of-thought reasoning, structured JSON output, and
+ * Uses gpt-5.5 for chain-of-thought reasoning, structured JSON output, and
  * more nuanced analysis than the built-in LLM.
  */
 import { ENV } from "../_core/env";
@@ -49,7 +49,7 @@ export async function invokeGPT(options: GPTOptions): Promise<GPTResponse> {
   }
 
   const body: Record<string, unknown> = {
-    model: options.model || "gpt-4o",
+    model: options.model || "gpt-5.5",
     messages: options.messages,
     temperature: options.temperature ?? 0.7,
   };

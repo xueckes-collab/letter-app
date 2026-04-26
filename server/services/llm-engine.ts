@@ -1,5 +1,5 @@
 /**
- * LLM Engine - GPT-4o powered sales intelligence.
+ * LLM Engine - GPT-5.5 powered sales intelligence.
  * All analysis and generation functions use chain-of-thought reasoning
  * with structured JSON output for reliable, intelligent results.
  *
