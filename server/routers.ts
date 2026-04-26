@@ -587,8 +587,7 @@ export const appRouter = router({
       }));
     }),
 
-    310
-     protectedProcedure
+         create: protectedProcedure
       .input(z.object({
         provider: z.string(),
         label: z.string().min(1),
