@@ -285,8 +285,7 @@ export const appRouter = router({
         return getLeadWithRelations(input.leadId, ctx.user.id);
       }),
 
-    288
-     protectedProcedure
+         create:           protectedProcedure
       .input(z.object({
         email: z.string().email(),
         website: z.string().min(1),
@@ -298,12 +297,11 @@ export const appRouter = router({
           contactName: input.contactName || null, source: 'manual',
           status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
         });
-Page_Down
         const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
         const state = await getLeadState(leadId);
         const lead = await getLeadById(leadId, ctx.user.id);
 
-        return {Page_Down
+        return {
           lead, state,
           email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
           thinkingCards: buildThinkingCards([
