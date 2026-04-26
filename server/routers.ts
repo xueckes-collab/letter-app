@@ -22,7 +22,7 @@ import {
   getDraftEmailsForLeads,
   getAutomationSettings, upsertAutomationSettings,
   createFeedback, getFeedbacksByUser, getAllFeedbacks,
-  updateFeedbackAnalysis, deleteFeedback, getDb, deleteLeadsByIds,
+  updateFeedbackAnalysis, deleteFeedback, getDb,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -97,58 +97,16 @@ async function processLeadPipeline(leadId: number, userId: number, email: string
     subject: emailResult.subject, body: emailResult.body,
     strategyType: 'initial_warm', stageNumber: 0,
     thinkingSummary: [
-      {
-        title: '🔍 网站深度分析',
-        items: [
-          `📋 公司概况：${waResult.rawSummary}`,
-          `🏭 行业：${waResult.industry} | 商业模式：${waResult.businessModel}`,
-          `📊 市场定位：${waResult.marketPosition}`,
-          `🎯 采购意图评分：${waResult.purchaseIntentScore}/10`,
-          `👤 买家画像：${(waResult as any).buyerPersona || '分析中...'}`,
-          `📡 关键业务信号：${(waResult.websiteSignals || []).slice(0, 3).join('；')}`,
-          `🔥 触发事件：${(waResult.triggerEvents || []).slice(0, 3).join('；')}`,
-          `🪝 邮件钩子机会：${((waResult as any).hookOpportunities || []).slice(0, 2).join('；')}`,
-        ],
-      },
-      {
-        title: '🎯 客户画像匹配',
-        items: [
-          `📂 客户类型：${icpResult.icpName}`,
-          `👥 关键决策人：${(icpResult.buyerRoles || []).slice(0, 2).join('、')}`,
-          `😰 核心痛点：${(icpResult.painPoints || []).slice(0, 3).join('；')}`,
-          `💭 买家心理：${(icpResult as any).buyerMindset || '分析中...'}`,
-          `🤫 潜在顾虑：${((icpResult as any).whatTheyWontTell || []).slice(0, 2).join('；')}`,
-          `🗣️ 沟通风格：${(icpResult as any).communicationStyle || icpResult.decisionStyle}`,
-          `💡 销售角度：${(icpResult.salesAngles || []).slice(0, 2).map((a: any) => a.angle).join('；')}`,
-        ],
-      },
-      {
-        title: '💎 卖点精准匹配',
-        items: [
-          `⭐ 主打卖点：${uspResult.primaryUsp}`,
-          `🔗 辅助卖点：${uspResult.secondaryUsp}`,
-          `✅ 匹配原因：${uspResult.whyFit}`,
-          `📄 证据支撑：${(uspResult.proofPoints || []).slice(0, 2).join('；')}`,
-          `🚫 避免提及：${((uspResult as any).avoidPoints || []).slice(0, 2).join('；')}`,
-        ],
-      },
-      {
-        title: '✉️ 邮件策略',
-        items: [
-          `🪝 开场钩子：${uspResult.emailAngle?.hook || ''}`,
-          `💬 价值主张：${uspResult.emailAngle?.valueStatement || ''}`,
-          `👆 行动号召：${uspResult.emailAngle?.cta || ''}`,
-          `🔑 非群发证据：${(uspResult as any).notMassMailProof || ''}`,
-          `🎯 回复触发点：${(uspResult as any).replyTrigger || ''}`,
-        ],
-      },
+      { title: 'Website Analysis', items: [waResult.rawSummary, `Industry: ${waResult.industry}`, `Intent Score: ${waResult.purchaseIntentScore}/10`] },
+      { title: 'ICP Match', items: [`Type: ${icpResult.icpName}`, `Pain Points: ${(icpResult.painPoints || []).join(', ')}`] },
+      { title: 'USP Selection', items: [`Primary: ${uspResult.primaryUsp}`, `Why: ${uspResult.whyFit}`] },
     ],
     status: 'draft',
   });
 
   await upsertLeadState(leadId, userId, {
     currentState: 'waiting_user_send', currentRound: 0,
-    lastEmailType: 'warm', nextAction: 'Send the warm email to the prospect',
+    lastEmailType: 'warm', nextAction: '发送开发信给潜在客户',
   });
   await updateLeadStatus(leadId, 'email_drafted', 'blue', 'not_checked');
 
@@ -165,7 +123,7 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
-
+ 
 
     // Manually update email content (title and body)
     updateEmailContent: protectedProcedure
@@ -183,7 +141,7 @@ export const appRouter = router({
       }),
 
     googleEnabled: publicProcedure.query(() => ({ enabled: Boolean(process.env.GOOGLE_CLIENT_ID) })),
-  }),
+ }),
 
   // ============================================================
   // SENDER PROFILE
@@ -236,12 +194,10 @@ export const appRouter = router({
             const result = await invokeLLM({
               messages: [
                 { role: "system", content: "Extract all text content from this document. Return the raw text only." },
-                {
-                  role: "user", content: [
-                    { type: "text", text: `Extract text from this ${isPdf ? 'PDF' : 'image'} file: ${input.fileName}` },
-                    ...(isImage ? [{ type: "image_url" as const, image_url: { url } }] : [{ type: "file_url" as const, file_url: { url, mime_type: "application/pdf" as const } }]),
-                  ]
-                },
+                { role: "user", content: [
+                  { type: "text", text: `Extract text from this ${isPdf ? 'PDF' : 'image'} file: ${input.fileName}` },
+                  ...(isImage ? [{ type: "image_url" as const, image_url: { url } }] : [{ type: "file_url" as const, file_url: { url, mime_type: "application/pdf" as const } }]),
+                ]},
               ],
             });
             extractedText = result.choices[0]?.message?.content as string || null;
@@ -329,10 +285,11 @@ export const appRouter = router({
         return getLeadWithRelations(input.leadId, ctx.user.id);
       }),
 
-    create: protectedProcedure
+    288
+     protectedProcedure
       .input(z.object({
         email: z.string().email(),
-        website: z.string().url().or(z.string().min(1)),
+        website: z.string().min(1),
         contactName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -341,33 +298,26 @@ export const appRouter = router({
           contactName: input.contactName || null, source: 'manual',
           status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
         });
+Page_Down
+        const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
+        const state = await getLeadState(leadId);
+        const lead = await getLeadById(leadId, ctx.user.id);
 
-        try {
-          const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
-          const state = await getLeadState(leadId);
-          if (!state) throw new Error("Failed to get lead state");
-          const lead = await getLeadById(leadId, ctx.user.id);
-          if (!lead) throw new Error("Lead not found after creation");
-
-          return {
-            lead, state,
-            email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
-            thinkingCards: buildThinkingCards([
-              { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
-              { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
-              { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
-              { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
-            ]),
-          };
-        } catch (pipelineError) {
-          const fallbackLead = { id: leadId, status: "pending", website: input.website, email: input.email };
-          return { lead: fallbackLead, pipelineError: String(pipelineError) };
-        }
+        return {Page_Down
+          lead, state,
+          email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
+          thinkingCards: buildThinkingCards([
+            { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
+            { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
+            { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
+            { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
+          ]),
+        };
       }),
 
     bulkImport: protectedProcedure
       .input(z.object({
-        rows: z.string().max(500000),
+        rows: z.string(),
         autoGenerate: z.boolean().optional().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -404,13 +354,6 @@ export const appRouter = router({
           } catch { failedCount++; }
         }
         return { successCount, failedCount, generatedCount, batchId, importedLeadIds };
-      }),
-
-    deleteMany: protectedProcedure
-      .input(z.object({ leadIds: z.array(z.number()) }))
-      .mutation(async ({ ctx, input }) => {
-        const count = await deleteLeadsByIds(input.leadIds, ctx.user.id);
-        return { success: true, deletedCount: count };
       }),
   }),
 
@@ -484,7 +427,7 @@ export const appRouter = router({
       return getLeadsReadyForFollowUp(ctx.user.id);
     }),
 
-    // Import pre-parsed leads from Excel file
+        // Import pre-parsed leads from Excel file
     excelBulkImportParsed: protectedProcedure
       .input(z.object({
         leads: z.array(z.object({
@@ -524,7 +467,7 @@ export const appRouter = router({
         };
       }),
 
-    // Generate follow-up emails for multiple leads
+// Generate follow-up emails for multiple leads
     generateFollowUps: protectedProcedure
       .input(z.object({ leadIds: z.array(z.number()) }))
       .mutation(async ({ ctx, input }) => {
@@ -646,7 +589,8 @@ export const appRouter = router({
       }));
     }),
 
-    create: protectedProcedure
+    310
+     protectedProcedure
       .input(z.object({
         provider: z.string(),
         label: z.string().min(1),
@@ -1121,14 +1065,14 @@ export const appRouter = router({
         };
         const items = input.status
           ? await db.select(cols).from(esTable)
-            .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
-            .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
-            .where(eq(esTable.status, input.status))
-            .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset)
+              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+              .where(eq(esTable.status, input.status))
+              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset)
           : await db.select(cols).from(esTable)
-            .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
-            .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
-            .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset);
+              .leftJoin(usersTable, eq(esTable.userId, usersTable.id))
+              .leftJoin(leadsTable, eq(esTable.leadId, leadsTable.id))
+              .orderBy(desc(esTable.createdAt)).limit(input.limit).offset(offset);
         return { items, total: items.length };
       }),
 
