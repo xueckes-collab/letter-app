@@ -465,7 +465,7 @@ export const appRouter = router({
         };
       }),
 
-// Generate follow-up emails for multiple leads
+// 生成跟进邮件s for multiple leads
     generateFollowUps: protectedProcedure
       .input(z.object({ leadIds: z.array(z.number()) }))
       .mutation(async ({ ctx, input }) => {
@@ -507,7 +507,7 @@ export const appRouter = router({
 
             await upsertLeadState(leadId, ctx.user.id, {
               currentState: 'waiting_user_send_followup', currentRound: nextRound,
-              lastEmailType: 'followup', nextAction: `Send round ${nextRound} follow-up email`,
+              lastEmailType: 'followup', nextAction: `发送第${nextRound}轮跟进邮件`,
             });
             await updateLeadStatus(leadId, 'followup_drafted', 'amber', 'not_checked');
 
@@ -710,7 +710,7 @@ export const appRouter = router({
           currentState: 'waiting_response_status',
           lastSentAt: new Date(),
           followUpDueAt,
-          nextAction: 'Wait for prospect response. Auto follow-up in 48h.',
+          nextAction: '等待客户回复，48小时后自动跟进',
         });
         await updateLeadStatus(input.leadId, 'email_sent', 'blue', 'not_checked');
         return { state: await getLeadState(input.leadId) };
@@ -776,7 +776,7 @@ export const appRouter = router({
 
         await upsertLeadState(input.leadId, ctx.user.id, {
           currentState: 'waiting_user_send_followup', currentRound: nextRound,
-          lastEmailType: 'followup', nextAction: `Send round ${nextRound} follow-up email`,
+          lastEmailType: 'followup', nextAction: `发送第${nextRound}轮跟进邮件`,
         });
         await updateLeadStatus(input.leadId, 'followup_drafted', 'amber', 'not_checked');
 
@@ -846,7 +846,7 @@ export const appRouter = router({
         await upsertLeadState(input.leadId, ctx.user.id, {
           currentState: 'drafting_reply_email', hasReply: true,
           replyPastedAt: new Date(), lastEmailType: 'reply',
-          nextAction: 'Review and send the reply email',
+          nextAction: '查看并发送回复邮件',
           followUpDueAt: null, // Cancel auto follow-up since we got a reply
         });
 
@@ -868,7 +868,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await upsertLeadState(input.leadId, ctx.user.id, {
           currentState: 'waiting_response_status', hasReply: false,
-          nextAction: 'Generate follow-up email',
+          nextAction: '生成跟进邮件',
         });
         return { state: await getLeadState(input.leadId) };
       }),
@@ -1050,7 +1050,7 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) return { items: [], total: 0 };
         const { emailSequences: esTable, users: usersTable, leads: leadsTable } = await import('../drizzle/schema');
-        const { desc, eq, leftJoin } = await import('drizzle-orm');
+        const { desc, eq, leftJoin } = await import('drizzle-orm')
         const offset = (input.page - 1) * input.limit;
         const cols = {
           id: esTable.id, userId: esTable.userId, leadId: esTable.leadId,
