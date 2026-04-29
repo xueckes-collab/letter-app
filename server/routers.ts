@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
-import { aiPromptSettings } from "../drizzle/schema";
+import { aiPromptSettings, users } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
@@ -38,7 +39,12 @@ import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services
 async function buildSenderContext(userId: number): Promise<string> {
   const profile = await getSenderProfile(userId);
   if (!profile) return "No sender profile configured yet.";
-  let ctx = `Company: ${profile.companyName}\nWebsite: ${profile.website}\nProducts: ${profile.mainProducts}\nAdvantages: ${profile.coreAdvantages}\nCertifications: ${profile.certifications}\nMOQ/Lead Time: ${profile.moqLeadTime}\nSample Policy: ${profile.samplePolicy}\nCustomization: ${profile.customization}`;
+  // Get user name for email signature
+  const db = await getDb();
+  let userName = "";
+  const [userRecord] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+  if (userRecord?.name) userName = userRecord.name;
+  let ctx = `Sender Name: ${userName}\nCompany: ${profile.companyName}\nWebsite: ${profile.website}\nProducts: ${profile.mainProducts}\nAdvantages: ${profile.coreAdvantages}\nCertifications: ${profile.certifications}\nMOQ/Lead Time: ${profile.moqLeadTime}\nSample Policy: ${profile.samplePolicy}\nCustomization: ${profile.customization}`;
   if (profile.assets?.length) {
     ctx += "\n\nUploaded Asset Summaries:\n";
     for (const asset of profile.assets) {
