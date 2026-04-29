@@ -420,6 +420,8 @@ export async function generateEmail(params: {
 5. **CTA**（1句）：一个具体的、低门槛的下一步
 
 发送方背景信息：
+
+重要：在邮件结尾的签名处，使用发送方背景信息中的"Sender Name"作为署名。绝对不要使用"[Your Name]"或其他占位符。如果Sender Name为空，则不添加个人署名，只保留公司信息。
 ${senderContext}`;
 
   if (type === 'warm') {
