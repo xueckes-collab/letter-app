@@ -100,7 +100,7 @@ export default function AutomationPage() {
         accountId: selectedAccountId ? Number(selectedAccountId) : undefined,
       });
       setBatchProgress(null);
-      toast.success(`批量发送完成：${result.sent}/${result.total} 封邮件已发送`);
+      if (result.failed > 0) { toast.error(`批量发送部分失败：${result.sent}/${result.total} 封成功，${result.failed} 封失败`); } else { toast.success(`批量发送完成：${result.sent}/${result.total} 封邮件已发送`); }
       utils.leads.list.invalidate();
       utils.batch.getFollowUpDue.invalidate();
     } catch (e: any) {
