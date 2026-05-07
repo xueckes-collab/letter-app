@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
-  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSquare,
+  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSuare,
   ChevronDown, ChevronUp, Copy, Check, Globe, Building2,
   Brain, SkipForward, CheckCircle2, Clock, Pencil
 } from "lucide-react";
@@ -39,7 +39,7 @@ export default function LeadDetailPage() {
   });
 
   const batchSend = trpc.batch.sendEmails.useMutation({
-    onSuccess: () => { toast.success('邮件已发送'); utils.workflow.loadLead.invalidate({ leadId }); utils.leads.list.invalidate(); },
+    onSuccess: (result) => { if (result.failed > 0) { toast.error(result.results?.[0]?.error || '邮件发送失败'); } else { toast.success('邮件已发送'); } utils.workflow.loadLead.invalidate({ leadId }); utils.leads.list.invalidate(); },
     onError: (err) => toast.error(err.message),
   });
 
