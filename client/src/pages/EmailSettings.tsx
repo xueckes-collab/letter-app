@@ -78,6 +78,80 @@ const EMAIL_DOMAIN_MAP: Record<string, string> = {
   "snov.io": "snovio",
 };
 
+
+const PROVIDER_PASSWORD_GUIDE: Record<string, { title: string; steps: string[]; link: string; linkText: string }> = {
+  gmail: {
+    title: "Gmail 应用专用密码获取指引",
+    steps: [
+      "1. 登录 Google 账户，进入「账户安全性」设置",
+      "2. 开启「两步验证」（如果还没开启）",
+      "3. 在安全性页面找到「应用专用密码」",
+      "4. 点击「生成」，选择应用类型为「邮件」",
+      "5. 复制生成的 16 位密码，粘贴到上方密码框"
+    ],
+    link: "https://myaccount.google.com/apppasswords",
+    linkText: "打开 Google 应用专用密码页面"
+  },
+  outlook: {
+    title: "Outlook / Hotmail 密码获取指引",
+    steps: [
+      "1. 登录 Microsoft 账户安全设置",
+      "2. 如已开启两步验证，需生成应用密码",
+      "3. 如未开启两步验证，可直接使用登录密码",
+      "4. 复制密码粘贴到上方密码框"
+    ],
+    link: "https://account.microsoft.com/security",
+    linkText: "打开 Microsoft 安全设置"
+  },
+  qq: {
+    title: "QQ 邮箱授权码获取指引",
+    steps: [
+      "1. 登录 QQ 邮箱网页版 (mail.qq.com)",
+      "2. 进入「设置」→「账户」",
+      "3. 找到「POP3/SMTP 服务」，点击「开启」",
+      "4. 按提示发送短信验证",
+      "5. 获取授权码，复制粘贴到上方密码框"
+    ],
+    link: "https://mail.qq.com",
+    linkText: "打开 QQ 邮箱设置"
+  },
+  "163": {
+    title: "163/126 邮箱授权码获取指引",
+    steps: [
+      "1. 登录网易邮箱网页版 (mail.163.com)",
+      "2. 进入「设置」→「POP3/SMTP/IMAP」",
+      "3. 开启「SMTP 服务」",
+      "4. 按提示发送短信验证",
+      "5. 获取授权码，复制粘贴到上方密码框"
+    ],
+    link: "https://mail.163.com",
+    linkText: "打开网易邮箱设置"
+  },
+  yahoo: {
+    title: "Yahoo 邮箱应用密码获取指引",
+    steps: [
+      "1. 登录 Yahoo 账户安全设置",
+      "2. 开启「两步验证」",
+      "3. 找到「生成应用密码」",
+      "4. 选择应用类型，生成密码",
+      "5. 复制密码粘贴到上方密码框"
+    ],
+    link: "https://login.yahoo.com/account/security",
+    linkText: "打开 Yahoo 安全设置"
+  },
+  zoho: {
+    title: "Zoho 邮箱应用密码获取指引",
+    steps: [
+      "1. 登录 Zoho Mail 设置",
+      "2. 进入「安全性」设置",
+      "3. 生成「应用专用密码」",
+      "4. 复制密码粘贴到上方密码框"
+    ],
+    link: "https://accounts.zoho.com/home#security/security_pwd",
+    linkText: "打开 Zoho 安全设置"
+  },
+};
+
 export default function EmailSettingsPage() {
     const [, setLocation] = useLocation();
     const { data: accounts, isLoading } = trpc.emailAccounts.list.useQuery();
@@ -90,6 +164,7 @@ export default function EmailSettingsPage() {
 
   const [showAdd, setShowAdd] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
     const [selectedProvider, setSelectedProvider] = useState("");
 
   // Email signature and formatting state
@@ -671,6 +746,16 @@ export default function EmailSettingsPage() {
                                                                                                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                                                                                         </button>
                                                                                   </div>
+                                                              {selectedProvider !== "custom" && PROVIDER_PASSWORD_GUIDE[selectedProvider] && (
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={() => setShowGuide(true)}
+                                                                  className="mt-1 text-xs text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-1"
+                                                                >
+                                                                  <Shield className="h-3 w-3" />
+                                                                  如何获取{selectedProvider === "qq" || selectedProvider === "163" ? "授权码" : "应用密码"}？
+                                                                </button>
+                                                              )}
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                                 <Switch
@@ -796,6 +881,44 @@ export default function EmailSettingsPage() {
                                   </DialogFooter>
                         </DialogContent>
                 </Dialog>
+          {/* Password Guide Dialog */}
+          <Dialog open={showGuide} onOpenChange={setShowGuide}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-orange-500" />
+                  {PROVIDER_PASSWORD_GUIDE[selectedProvider]?.title || "密码获取指引"}
+                </DialogTitle>
+                <DialogDescription>
+                  注意：此处需要填写的不是您的登录密码，而是邮箱提供商生成的专用密码/授权码。
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                {PROVIDER_PASSWORD_GUIDE[selectedProvider]?.steps.map((step, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                    <span>{step}</span>
+                  </div>
+                ))}
+              </div>
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowGuide(false)}
+                >
+                  我知道了
+                </Button>
+                <Button
+                  onClick={() => {
+                    window.open(PROVIDER_PASSWORD_GUIDE[selectedProvider]?.link, "_blank");
+                  }}
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                >
+                  {PROVIDER_PASSWORD_GUIDE[selectedProvider]?.linkText || "打开设置页面"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           </div>
         );
       }
