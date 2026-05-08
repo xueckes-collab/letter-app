@@ -57,6 +57,27 @@ const IMAP_PRESETS: Record<string, { host: string; port: number; secure: boolean
     zoho: { host: "imap.zoho.com", port: 993, secure: true },
 };
 
+// Auto-detect email provider from domain
+const EMAIL_DOMAIN_MAP: Record<string, string> = {
+  "gmail.com": "gmail",
+  "googlemail.com": "gmail",
+  "outlook.com": "outlook",
+  "hotmail.com": "outlook",
+  "live.com": "outlook",
+  "msn.com": "outlook",
+  "office365.com": "outlook",
+  "qq.com": "qq",
+  "foxmail.com": "qq",
+  "163.com": "163",
+  "126.com": "163",
+  "yeah.net": "163",
+  "yahoo.com": "yahoo",
+  "yahoo.co.jp": "yahoo",
+  "yahoo.co.uk": "yahoo",
+  "zoho.com": "zoho",
+  "snov.io": "snovio",
+};
+
 export default function EmailSettingsPage() {
     const [, setLocation] = useLocation();
     const { data: accounts, isLoading } = trpc.emailAccounts.list.useQuery();
@@ -148,6 +169,15 @@ export default function EmailSettingsPage() {
                           imapSecure: true,
                 }));
         }
+  };
+
+  // Auto-detect provider from email domain
+  const handleEmailChange = (email: string) => {
+    setForm(prev => ({ ...prev, email, smtpUser: email }));
+    const domain = email.split("@")[1]?.toLowerCase();
+    if (domain && EMAIL_DOMAIN_MAP[domain] && EMAIL_DOMAIN_MAP[domain] !== selectedProvider) {
+      handleSelectProvider(EMAIL_DOMAIN_MAP[domain]);
+    }
   };
 
   const handleVerify = async () => {
@@ -586,7 +616,7 @@ export default function EmailSettingsPage() {
                                                                                 <Input
                                                                                                         type="email"
                                                                                                         value={form.email}
-                                                                                                        onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+                                                                                                        onChange={e => handleEmailChange(e.target.value)}
                                                                                                         placeholder="your@email.com"
                                                                                                       />
                                                             </div>
