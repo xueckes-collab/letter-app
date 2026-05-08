@@ -9,6 +9,24 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
 import { GOOGLE_CLIENT_ID } from "@/const";
 
+const SMTP_PRESETS: Record<string, { provider: string; label: string; host: string; port: number; secure: boolean; imapHost: string; imapPort: number; imapSecure: boolean }> = {
+  gmail: { provider: "gmail", label: "Gmail", host: "smtp.gmail.com", port: 465, secure: true, imapHost: "imap.gmail.com", imapPort: 993, imapSecure: true },
+  outlook: { provider: "outlook", label: "Outlook", host: "smtp.office365.com", port: 587, secure: false, imapHost: "outlook.office365.com", imapPort: 993, imapSecure: true },
+  qq: { provider: "qq", label: "QQ邮箱", host: "smtp.qq.com", port: 465, secure: true, imapHost: "imap.qq.com", imapPort: 993, imapSecure: true },
+  "163": { provider: "163", label: "网易 163", host: "smtp.163.com", port: 465, secure: true, imapHost: "imap.163.com", imapPort: 993, imapSecure: true },
+  yahoo: { provider: "yahoo", label: "Yahoo", host: "smtp.mail.yahoo.com", port: 465, secure: true, imapHost: "imap.mail.yahoo.com", imapPort: 993, imapSecure: true },
+  zoho: { provider: "zoho", label: "Zoho", host: "smtp.zoho.com", port: 465, secure: true, imapHost: "imap.zoho.com", imapPort: 993, imapSecure: true },
+};
+
+const REG_DOMAIN_MAP: Record<string, string> = {
+  "gmail.com": "gmail", "googlemail.com": "gmail",
+  "outlook.com": "outlook", "hotmail.com": "outlook", "live.com": "outlook", "msn.com": "outlook",
+  "qq.com": "qq", "foxmail.com": "qq",
+  "163.com": "163", "126.com": "163", "yeah.net": "163",
+  "yahoo.com": "yahoo", "yahoo.co.jp": "yahoo", "yahoo.co.uk": "yahoo",
+  "zoho.com": "zoho",
+};
+
 export default function LoginPage() {
   const [, navigate] = useLocation();
   const [loginEmail, setLoginEmail] = useState("");
@@ -16,6 +34,7 @@ export default function LoginPage() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -107,6 +126,39 @@ export default function LoginPage() {
         setError(data.error || "Registration failed");
         return;
       }
+      // Auto-create email account if smtpPass was provided
+      if (smtpPass) {
+        try {
+          const domain = registerEmail.split("@")[1]?.toLowerCase();
+          const providerKey = domain ? REG_DOMAIN_MAP[domain] : undefined;
+          const preset = providerKey ? SMTP_PRESETS[providerKey] : undefined;
+          if (preset) {
+            await fetch("/api/trpc/emailAccounts.create?batch=1", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ "0": { json: {
+                provider: preset.provider,
+                label: preset.label,
+                email: registerEmail,
+                smtpHost: preset.host,
+                smtpPort: preset.port,
+                smtpUser: registerEmail,
+                smtpPass: smtpPass,
+                smtpSecure: preset.secure,
+                imapHost: preset.imapHost,
+                imapPort: preset.imapPort,
+                imapSecure: preset.imapSecure,
+                isDefault: true,
+              }}}),
+            });
+          }
+        } catch (e) {
+          // Email account creation failure should not block registration
+          console.error("Auto email setup failed:", e);
+        }
+      }
+
       await utils.auth.me.invalidate();
       navigate(getNextPath());
     } catch {
@@ -240,6 +292,19 @@ export default function LoginPage() {
                       minLength={6}
                       autoComplete="new-password"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>发件邮箱密码（应用专用密码 / 授权码）</Label>
+                    <Input
+                      type="password"
+                      placeholder="非登录密码，需到邮箱设置中获取"
+                      value={smtpPass}
+                      onChange={e => setSmtpPass(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Gmail 需「应用专用密码」，QQ/163 需「授权码」。
+                      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" className="text-orange-600 hover:underline ml-1">获取指引 →</a>
+                    </p>
                   </div>
                   <Button type="submit" className="w-full" disabled={loading}>
                     {loading ? "Creating account..." : "Create Account"}
