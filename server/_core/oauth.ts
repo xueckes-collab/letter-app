@@ -82,6 +82,24 @@ setInterval(() => {
 export function registerOAuthRoutes(app: Express) {
   const googleClient = ENV.googleClientId ? new OAuth2Client(ENV.googleClientId) : null;
 
+  // GET /api/auth/health — debug endpoint (TEMPORARY)
+  app.get("/api/auth/health", async (_req: Request, res: Response) => {
+    const checks: Record<string, unknown> = { timestamp: new Date().toISOString() };
+    checks.hasDbUrl = !!process.env.DATABASE_URL;
+    checks.dbUrlPrefix = process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 15) + "..." : "NOT SET";
+    checks.hasJwtSecret = !!ENV.cookieSecret;
+    try {
+      const testUser = await db.getUserByEmail("__health__@test.invalid");
+      checks.dbConnected = true;
+      checks.testResult = testUser === undefined ? "no user (ok)" : "found";
+    } catch (e) {
+      checks.dbConnected = false;
+      checks.dbError = e instanceof Error ? e.message : String(e);
+      checks.dbStack = e instanceof Error ? (e.stack || "").split("\n").slice(0, 4).join(" | ") : "";
+    }
+    res.json(checks);
+  });
+
   // POST /api/auth/register
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     const { email, password, name } = req.body ?? {};
@@ -132,7 +150,8 @@ export function registerOAuthRoutes(app: Express) {
       res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     } catch (error) {
       console.error("[Auth] Register failed", error);
-      res.status(500).json({ error: "注册失败，请稍后再试" });
+      const _m = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: "注册失败，请稍后再试", debug: _m });
     }
   });
 
@@ -179,7 +198,8 @@ export function registerOAuthRoutes(app: Express) {
       res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     } catch (error) {
       console.error("[Auth] Login failed", error);
-      res.status(500).json({ error: "登录失败，请稍后再试" });
+      const _m = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: "登录失败，请稍后再试", debug: _m });
     }
   });
 
