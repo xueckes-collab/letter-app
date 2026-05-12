@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import trpc from "@/lib/trpc";
+import { trpc } from "@/lib/trpc";
 import { GOOGLE_CLIENT_ID } from "@/const";
 
 const SMTP_PRESETS: Record<string, { provider: string; label: string; host: string; port: number; secure: boolean; imapHost: string; imapPort: number; imapSecure: boolean }> = {
