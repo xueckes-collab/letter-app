@@ -96,6 +96,8 @@ export function registerOAuthRoutes(app: Express) {
       checks.dbConnected = false;
       checks.dbError = e instanceof Error ? e.message : String(e);
       checks.dbStack = e instanceof Error ? (e.stack || "").split("\n").slice(0, 4).join(" | ") : "";
+            checks.dbCause = e instanceof Error && e.cause ? (e.cause instanceof Error ? e.cause.message : String(e.cause)) : "no cause";
+            checks.dbCauseCode = e instanceof Error && e.cause && typeof e.cause === "object" && "code" in e.cause ? (e.cause as any).code : "none";
     }
     res.json(checks);
   });
