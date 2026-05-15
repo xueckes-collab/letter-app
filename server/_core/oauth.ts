@@ -6,6 +6,7 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import { OAuth2Client } from "google-auth-library";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
@@ -14,6 +15,7 @@ import { ENV } from "./env";
 // ============================================================
 // Validation helpers
 // ============================================================
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const COMMON_WEAK_PASSWORDS = new Set([
@@ -37,6 +39,7 @@ function validatePW(pw: string): { ok: boolean; error?: string } {
 // ============================================================
 // Login attempt rate limiter (in-memory)
 // ============================================================
+
 const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const MAX_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -80,27 +83,9 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 export function registerOAuthRoutes(app: Express) {
-  const googleClient = ENV.googleClientId ? new OAuth2Client(ENV.googleClientId) : null;
-
-  // GET /api/auth/health — debug endpoint (TEMPORARY)
-  app.get("/api/auth/health", async (_req: Request, res: Response) => {
-    const checks: Record<string, unknown> = { timestamp: new Date().toISOString() };
-    checks.hasDbUrl = !!process.env.DATABASE_URL;
-    checks.dbUrlPrefix = process.env.DATABASE_URL ? process.env.DATABASE_URL.substring(0, 15) + "..." : "NOT SET";
-    checks.hasJwtSecret = !!ENV.cookieSecret;
-    try {
-      const testUser = await db.getUserByEmail("__health__@test.invalid");
-      checks.dbConnected = true;
-      checks.testResult = testUser === undefined ? "no user (ok)" : "found";
-    } catch (e) {
-      checks.dbConnected = false;
-      checks.dbError = e instanceof Error ? e.message : String(e);
-      checks.dbStack = e instanceof Error ? (e.stack || "").split("\n").slice(0, 4).join(" | ") : "";
-            checks.dbCause = e instanceof Error && e.cause ? (e.cause instanceof Error ? e.cause.message : String(e.cause)) : "no cause";
-            checks.dbCauseCode = e instanceof Error && e.cause && typeof e.cause === "object" && "code" in e.cause ? (e.cause as any).code : "none";
-    }
-    res.json(checks);
-  });
+  const googleClient = ENV.googleClientId
+    ? new OAuth2Client(ENV.googleClientId)
+    : null;
 
   // POST /api/auth/register
   app.post("/api/auth/register", async (req: Request, res: Response) => {
@@ -140,26 +125,29 @@ export function registerOAuthRoutes(app: Express) {
         res.status(400).json({ error: "注册失败，请检查信息后重试" });
         return;
       }
+
       const pwHash = await bcrypt.hash(password, 10);
       const user = await db.createUser({
         email: normalizedEmail,
         passwordHash: pwHash,
         name: trimmedName,
       });
+
       const sToken = await sdk.createSessionToken(user.id, user.email!);
       const cookieOpts = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sToken, { ...cookieOpts, maxAge: ONE_YEAR_MS });
+
       res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     } catch (error) {
       console.error("[Auth] Register failed", error);
-      const _m = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: "注册失败，请稍后再试", debug: _m });
+      res.status(500).json({ error: "注册失败，请稍后再试" });
     }
   });
 
   // POST /api/auth/login
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     const { email, password } = req.body ?? {};
+
     if (!email || !password) {
       res.status(400).json({ error: "邮箱和密码为必填项" });
       return;
@@ -192,16 +180,16 @@ export function registerOAuthRoutes(app: Express) {
 
       // Success - clear rate limit
       clearLoginFailures(normalizedEmail);
-
       await db.updateUserLastSignedIn(user.id);
+
       const sToken = await sdk.createSessionToken(user.id, user.email!);
       const cookieOpts = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sToken, { ...cookieOpts, maxAge: ONE_YEAR_MS });
+
       res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     } catch (error) {
       console.error("[Auth] Login failed", error);
-      const _m = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: "登录失败，请稍后再试", debug: _m });
+      res.status(500).json({ error: "登录失败，请稍后再试" });
     }
   });
 
@@ -238,6 +226,7 @@ export function registerOAuthRoutes(app: Express) {
       const sToken = await sdk.createSessionToken(user.id, user.email!);
       const cookieOpts = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sToken, { ...cookieOpts, maxAge: ONE_YEAR_MS });
+
       res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     } catch (error) {
       console.error("[Auth] Google login failed", error);
@@ -249,6 +238,111 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     res.clearCookie(COOKIE_NAME);
     res.json({ ok: true });
+  });
+
+  // ============================================================
+  // POST /api/auth/forgot-password
+  // Sends a password reset email with a token link
+  // ============================================================
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    const { email } = req.body ?? {};
+
+    if (!email) {
+      res.status(400).json({ error: "请输入邮箱地址" });
+      return;
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!validateEmail(normalizedEmail)) {
+      res.status(400).json({ error: "邮箱格式不正确" });
+      return;
+    }
+
+    try {
+      // Always return success to prevent user enumeration
+      const user = await db.getUserByEmail(normalizedEmail);
+      if (!user) {
+        // Don't reveal that the user doesn't exist
+        res.json({ ok: true, message: "如果该邮箱已注册，您将收到一封密码重置邮件" });
+        return;
+      }
+
+      // Generate a secure random token
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // Invalidate any existing tokens for this user
+      await db.invalidatePasswordResetTokens(user.id);
+
+      // Save the new token
+      await db.createPasswordResetToken({
+        userId: user.id,
+        token,
+        expiresAt,
+      });
+
+      // Send the reset email via the user's default email account or system SMTP
+      const resetUrl = `${req.protocol}://${req.get("host")}/login?resetToken=${token}`;
+      try {
+        await db.sendPasswordResetEmail(normalizedEmail, resetUrl, user.name || "用户");
+      } catch (emailErr) {
+        console.error("[Auth] Failed to send reset email:", emailErr);
+        // Still return success to prevent enumeration
+      }
+
+      res.json({ ok: true, message: "如果该邮箱已注册，您将收到一封密码重置邮件" });
+    } catch (error) {
+      console.error("[Auth] Forgot password failed", error);
+      res.status(500).json({ error: "操作失败，请稍后再试" });
+    }
+  });
+
+  // ============================================================
+  // POST /api/auth/reset-password
+  // Resets the password using a valid token
+  // ============================================================
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    const { token, password } = req.body ?? {};
+
+    if (!token || !password) {
+      res.status(400).json({ error: "缺少必要参数" });
+      return;
+    }
+
+    // Validate new password strength
+    const pwCheck = validatePW(password);
+    if (!pwCheck.ok) {
+      res.status(400).json({ error: pwCheck.error });
+      return;
+    }
+
+    try {
+      // Find the token record
+      const resetRecord = await db.getPasswordResetToken(token);
+      if (!resetRecord) {
+        res.status(400).json({ error: "重置链接无效或已过期" });
+        return;
+      }
+
+      // Check expiry
+      if (new Date() > resetRecord.expiresAt) {
+        await db.invalidatePasswordResetTokens(resetRecord.userId);
+        res.status(400).json({ error: "重置链接已过期，请重新申请" });
+        return;
+      }
+
+      // Hash new password and update
+      const pwHash = await bcrypt.hash(password, 10);
+      await db.updateUserPassword(resetRecord.userId, pwHash);
+
+      // Invalidate all tokens for this user
+      await db.invalidatePasswordResetTokens(resetRecord.userId);
+
+      res.json({ ok: true, message: "密码已重置成功，请使用新密码登录" });
+    } catch (error) {
+      console.error("[Auth] Reset password failed", error);
+      res.status(500).json({ error: "密码重置失败，请稍后再试" });
+    }
   });
 
   // ============================================================
@@ -273,7 +367,6 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     const redirectUri = `${req.protocol}://${req.get("host")}/api/auth/gmail/callback`;
-
     const oauthClient = new OAuth2Client(ENV.googleClientId, ENV.googleClientSecret, redirectUri);
 
     const authUrl = oauthClient.generateAuthUrl({
@@ -286,7 +379,6 @@ export function registerOAuthRoutes(app: Express) {
       ],
       state: accountId,
     });
-
     res.redirect(authUrl);
   });
 
@@ -321,6 +413,7 @@ export function registerOAuthRoutes(app: Express) {
 
     try {
       const { tokens } = await oauthClient.getToken(code);
+
       if (!tokens.access_token || !tokens.refresh_token) {
         res.status(400).send("Failed to get tokens from Google");
         return;
