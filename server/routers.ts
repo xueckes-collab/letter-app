@@ -24,6 +24,7 @@ import {
   getAutomationSettings, upsertAutomationSettings,
   createFeedback, getFeedbacksByUser, getAllFeedbacks,
   updateFeedbackAnalysis, deleteFeedback, getDb,
+  getAuthLogs, getSentEmailLogs,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -1147,6 +1148,39 @@ export const appRouter = router({
         const { eq } = await import('drizzle-orm');
         await db.update(esTable).set({ status: 'draft' }).where(eq(esTable.id, input.emailId));
         return { success: true };
+      }),
+
+
+    listAuthLogs: adminProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(500).default(100),
+          offset: z.number().min(0).default(0),
+          eventType: z.enum(["register_success", "register_fail", "login_success", "login_fail"]).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const logs = await getAuthLogs({
+          limit: input.limit,
+          offset: input.offset,
+          eventType: input.eventType,
+        });
+        return logs;
+      }),
+
+    listSentEmails: adminProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(500).default(100),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ input }) => {
+        const emails = await getSentEmailLogs({
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return emails;
       }),
   }),
 });
