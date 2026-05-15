@@ -17,6 +17,8 @@ import {
   emailAccounts, InsertEmailAccount, EmailAccount,
   automationSettings,
   feedbacks,
+  passwordResetTokens,
+  authLogs,
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -720,4 +722,159 @@ export async function deleteLeadsByIds(leadIds: number[], userId: number): Promi
     .returning({ id: leads.id });
 
   return result.length;
+}
+
+
+// PASSWORD RESET TOKEN HELPERS
+// ============================================================
+
+export async function createPasswordResetToken(data: {
+  userId: number;
+  token: string;
+  expiresAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db
+    .insert(passwordResetTokens)
+    .values({
+      userId: data.userId,
+      token: data.token,
+      expiresAt: data.expiresAt,
+    })
+    .returning({ id: passwordResetTokens.id });
+  return result[0].id;
+}
+
+export async function getPasswordResetToken(token: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(passwordResetTokens)
+    .where(
+      and(
+        eq(passwordResetTokens.token, token),
+        eq(passwordResetTokens.used, false)
+      )
+    )
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function invalidatePasswordResetTokens(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(passwordResetTokens)
+    .set({ used: true })
+    .where(eq(passwordResetTokens.userId, userId));
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(users)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+// Simplified: log the reset URL to console; in production, integrate with nodemailer
+export async function sendPasswordResetEmail(
+  email: string,
+  resetUrl: string,
+  name: string
+): Promise<void> {
+  console.log(`[Auth] Password reset email for ${email}: ${resetUrl}`);
+
+  const smtpHost = process.env.SYSTEM_SMTP_HOST;
+  const smtpPort = process.env.SYSTEM_SMTP_PORT;
+  const smtpUser = process.env.SYSTEM_SMTP_USER;
+  const smtpPass = process.env.SYSTEM_SMTP_PASS;
+
+  if (smtpHost && smtpUser && smtpPass) {
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: parseInt(smtpPort || "587"),
+      secure: smtpPort === "465",
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    await transporter.sendMail({
+      from: smtpUser,
+      to: email,
+      subject: "密码重置 - Outbound Mail OS",
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><h2>密码重置</h2><p>你好 ${name}，</p><p>请点击下方链接重置密码：</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:8px">重置密码</a></p><p>此链接有效期为1小时。</p></div>`,
+    });
+    console.log(`[Auth] Reset email sent to ${email}`);
+  }
+}
+
+// ============================================================
+// AUTH LOG HELPERS (for admin audit page)
+// ============================================================
+
+export async function getAuthLogs(options: {
+  limit?: number;
+  offset?: number;
+  eventType?: string;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [];
+  if (options.eventType) {
+    conditions.push(eq(authLogs.eventType, options.eventType as any));
+  }
+
+  const query = db
+    .select()
+    .from(authLogs)
+    .orderBy(desc(authLogs.createdAt))
+    .limit(options.limit || 100)
+    .offset(options.offset || 0);
+
+  if (conditions.length > 0) {
+    return query.where(and(...conditions));
+  }
+  return query;
+}
+
+export async function getAuthLogCount() {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(authLogs);
+  return result[0]?.count || 0;
+}
+
+export async function getSentEmailLogs(options: {
+  limit?: number;
+  offset?: number;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: emailSequences.id,
+      userId: emailSequences.userId,
+      leadId: emailSequences.leadId,
+      emailType: emailSequences.emailType,
+      subject: emailSequences.subject,
+      status: emailSequences.status,
+      sentAt: emailSequences.sentAt,
+      createdAt: emailSequences.createdAt,
+      leadEmail: leads.email,
+      leadCompany: leads.companyName,
+    })
+    .from(emailSequences)
+    .leftJoin(leads, eq(emailSequences.leadId, leads.id))
+    .where(eq(emailSequences.status, "sent"))
+    .orderBy(desc(emailSequences.sentAt))
+    .limit(options.limit || 100)
+    .offset(options.offset || 0);
 }
