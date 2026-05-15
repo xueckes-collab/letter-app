@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
+import * as db from "../db";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -9,9 +10,32 @@ export const systemRouter = router({
         timestamp: z.number().min(0, "timestamp cannot be negative"),
       })
     )
-    .query(() => ({
-      ok: true,
-    })),
+    .query(async () => {
+      const checks: Record<string, unknown> = {
+        ok: false,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Check database connectivity by running a real query
+      try {
+        // getUserByEmail will return undefined if no DB, or throw if DB is unreachable
+        const testResult = await db.getUserByEmail("__health__@test.invalid");
+        // If we get here without throwing, DB is connected
+        checks.database = "connected";
+        checks.ok = true;
+      } catch (e) {
+        checks.database = "disconnected";
+        checks.databaseError =
+          e instanceof Error
+            ? e.cause instanceof Error
+              ? e.cause.message
+              : e.message
+            : String(e);
+        checks.ok = false;
+      }
+
+      return checks;
+    }),
 
   notifyOwner: adminProcedure
     .input(
@@ -22,8 +46,6 @@ export const systemRouter = router({
     )
     .mutation(async ({ input }) => {
       const delivered = await notifyOwner(input);
-      return {
-        success: delivered,
-      } as const;
+      return { success: delivered } as const;
     }),
 });
