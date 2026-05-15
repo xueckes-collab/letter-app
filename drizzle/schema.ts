@@ -338,3 +338,18 @@ export const authLogs = pgTable("auth_logs", {
 
 export type AuthLog = typeof authLogs.$inferSelect;
 export type InsertAuthLog = typeof authLogs.$inferInsert;
+// ============================================================
+// 16. PASSWORD RESET TOKENS
+// ============================================================
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  token: varchar("token", { length: 128 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  used: boolean("used").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
