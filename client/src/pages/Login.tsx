@@ -10,6 +10,7 @@ import { GOOGLE_CLIENT_ID } from "@/const";
 // ============================================================
 // Constants & Presets
 // ============================================================
+
 const SMTP_PRESETS: Record<string, { provider: string; label: string; host: string; port: number; secure: boolean; imapHost: string; imapPort: number; imapSecure: boolean }> = {
   gmail: { provider: "gmail", label: "Gmail", host: "smtp.gmail.com", port: 465, secure: true, imapHost: "imap.gmail.com", imapPort: 993, imapSecure: true },
   outlook: { provider: "outlook", label: "Outlook", host: "smtp.office365.com", port: 587, secure: false, imapHost: "outlook.office365.com", imapPort: 993, imapSecure: true },
@@ -20,17 +21,27 @@ const SMTP_PRESETS: Record<string, { provider: string; label: string; host: stri
 };
 
 const REG_DOMAIN_MAP: Record<string, string> = {
-  "gmail.com": "gmail", "googlemail.com": "gmail",
-  "outlook.com": "outlook", "hotmail.com": "outlook", "live.com": "outlook", "msn.com": "outlook",
-  "qq.com": "qq", "foxmail.com": "qq",
-  "163.com": "163", "126.com": "163", "yeah.net": "163",
-  "yahoo.com": "yahoo", "yahoo.co.jp": "yahoo", "yahoo.co.uk": "yahoo",
+  "gmail.com": "gmail",
+  "googlemail.com": "gmail",
+  "outlook.com": "outlook",
+  "hotmail.com": "outlook",
+  "live.com": "outlook",
+  "msn.com": "outlook",
+  "qq.com": "qq",
+  "foxmail.com": "qq",
+  "163.com": "163",
+  "126.com": "163",
+  "yeah.net": "163",
+  "yahoo.com": "yahoo",
+  "yahoo.co.jp": "yahoo",
+  "yahoo.co.uk": "yahoo",
   "zoho.com": "zoho",
 };
 
 // ============================================================
 // Frontend validation helpers (mirror backend rules)
 // ============================================================
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateEmailFrontend(email: string): string | null {
@@ -62,6 +73,7 @@ function validatePasswordFrontend(pw: string): string | null {
 // ============================================================
 // Decorative SVG Icons for Features
 // ============================================================
+
 function MailIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -99,9 +111,10 @@ function ChevronRightIcon() {
 // ============================================================
 // Main Component
 // ============================================================
+
 export default function LoginPage() {
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<"login" | "register">("login");
+  const [activeTab, setActiveTab] = useState<"login" | "register" | "forgot" | "reset">("login");
 
   // Login state
   const [loginEmail, setLoginEmail] = useState("");
@@ -114,13 +127,34 @@ export default function LoginPage() {
   const [registerName, setRegisterName] = useState("");
   const [smtpPass, setSmtpPass] = useState("");
 
+  // Forgot password state
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
+
+  // Reset password state
+  const [resetToken, setResetToken] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetSuccess, setResetSuccess] = useState(false);
+
   // UI state
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: googleEnabled } = trpc.auth.googleEnabled.useQuery();
+
+  // Check for resetToken in URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("resetToken");
+    if (token) {
+      setResetToken(token);
+      setActiveTab("reset");
+    }
+  }, []);
 
   // Google Identity Services
   useEffect(() => {
@@ -168,6 +202,7 @@ export default function LoginPage() {
   };
 
   // ---- Handlers ----
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -183,11 +218,8 @@ export default function LoginPage() {
       if (!res.ok) { setError(data.error || "Login failed"); return; }
       await utils.auth.me.invalidate();
       navigate(getNextPath());
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Network error. Please try again."); }
+    finally { setLoading(false); }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -222,16 +254,24 @@ export default function LoginPage() {
           const domain = registerEmail.split("@")[1]?.toLowerCase();
           const providerKey = domain ? REG_DOMAIN_MAP[domain] : undefined;
           const preset = providerKey ? SMTP_PRESETS[providerKey] : undefined;
+
           if (preset) {
             await fetch("/api/trpc/emailAccounts.create?batch=1", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
               body: JSON.stringify({ "0": { json: {
-                provider: preset.provider, label: preset.label, email: registerEmail,
-                smtpHost: preset.host, smtpPort: preset.port, smtpUser: registerEmail,
-                smtpPass: smtpPass, smtpSecure: preset.secure,
-                imapHost: preset.imapHost, imapPort: preset.imapPort, imapSecure: preset.imapSecure,
+                provider: preset.provider,
+                label: preset.label,
+                email: registerEmail,
+                smtpHost: preset.host,
+                smtpPort: preset.port,
+                smtpUser: registerEmail,
+                smtpPass: smtpPass,
+                smtpSecure: preset.secure,
+                imapHost: preset.imapHost,
+                imapPort: preset.imapPort,
+                imapSecure: preset.imapSecure,
                 isDefault: true,
               }}}),
             });
@@ -243,11 +283,8 @@ export default function LoginPage() {
 
       await utils.auth.me.invalidate();
       navigate(getNextPath());
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Network error. Please try again."); }
+    finally { setLoading(false); }
   };
 
   const handleGoogleLogin = async (credential: string) => {
@@ -264,18 +301,67 @@ export default function LoginPage() {
       if (!res.ok) { setError(data.error || "Google login failed"); return; }
       await utils.auth.me.invalidate();
       navigate(getNextPath());
-    } catch {
-      setError("Google login failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Google login failed. Please try again."); }
+    finally { setLoading(false); }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+
+    const emailErr = validateEmailFrontend(forgotEmail);
+    if (emailErr) { setError(emailErr); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "操作失败"); return; }
+      setForgotSent(true);
+      setSuccessMsg(data.message || "如果该邮箱已注册，您将收到一封密码重置邮件");
+    } catch { setError("网络错误，请稍后再试"); }
+    finally { setLoading(false); }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setFieldErrors({});
+
+    const errors: Record<string, string> = {};
+    const pwErr = validatePasswordFrontend(resetPassword);
+    if (pwErr) errors.password = pwErr;
+    if (resetPassword !== resetConfirmPassword) errors.confirmPassword = "两次输入的密码不一致";
+
+    if (Object.keys(errors).length > 0) { setFieldErrors(errors); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: resetToken, password: resetPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "密码重置失败"); return; }
+      setResetSuccess(true);
+      setSuccessMsg(data.message || "密码已重置成功");
+    } catch { setError("网络错误，请稍后再试"); }
+    finally { setLoading(false); }
   };
 
   const pwStrength = getPasswordStrength(registerPassword);
+  const resetPwStrength = getPasswordStrength(resetPassword);
 
   // ============================================================
   // Render
   // ============================================================
+
   return (
     <>
       {/* Custom animations */}
@@ -314,7 +400,7 @@ export default function LoginPage() {
 
       <div className="min-h-screen flex bg-background">
         {/* ============================================================ */}
-        {/* Left Panel — Brand Showcase                                 */}
+        {/* Left Panel — Brand Showcase */}
         {/* ============================================================ */}
         <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
           {/* Decorative background elements */}
@@ -325,10 +411,13 @@ export default function LoginPage() {
             <div className="absolute -bottom-20 left-1/4 w-80 h-80 rounded-full bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 blur-3xl animate-pulse-ring" style={{ animationDelay: "4s" }} />
 
             {/* Grid pattern overlay */}
-            <div className="absolute inset-0 opacity-[0.03]" style={{
-              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-              backgroundSize: "60px 60px",
-            }} />
+            <div
+              className="absolute inset-0 opacity-[0.03]"
+              style={{
+                backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+                backgroundSize: "60px 60px",
+              }}
+            />
 
             {/* Floating geometric shapes */}
             <div className="absolute top-20 right-20 w-16 h-16 border border-white/10 rounded-xl rotate-12 animate-float" />
@@ -404,7 +493,7 @@ export default function LoginPage() {
         </div>
 
         {/* ============================================================ */}
-        {/* Right Panel — Form Area                                     */}
+        {/* Right Panel — Form Area */}
         {/* ============================================================ */}
         <div className="w-full lg:w-[48%] flex items-center justify-center p-6 sm:p-8 lg:p-12 relative">
           {/* Subtle background decoration for right panel */}
@@ -429,15 +518,21 @@ export default function LoginPage() {
             {/* Welcome text */}
             <div className="mb-8 animate-fade-in-up opacity-0 stagger-2">
               <h2 className="text-2xl font-semibold tracking-tight">
-                {activeTab === "login" ? "欢迎回来" : "创建账号"}
+                {activeTab === "login" ? "欢迎回来" : activeTab === "register" ? "创建账号" : activeTab === "forgot" ? "找回密码" : "重置密码"}
               </h2>
               <p className="text-muted-foreground text-sm mt-1.5">
-                {activeTab === "login" ? "登录你的账号继续使用" : "注册新账号开始使用 Letter"}
+                {activeTab === "login"
+                  ? "登录你的账号继续使用"
+                  : activeTab === "register"
+                  ? "注册新账号开始使用 Letter"
+                  : activeTab === "forgot"
+                  ? "输入你的注册邮箱，我们将发送重置链接"
+                  : "设置你的新密码"}
               </p>
             </div>
 
-            {/* Google Sign-In */}
-            {googleEnabled?.enabled && GOOGLE_CLIENT_ID && (
+            {/* Google Sign-In — only show for login/register */}
+            {(activeTab === "login" || activeTab === "register") && googleEnabled?.enabled && GOOGLE_CLIENT_ID && (
               <div className="mb-6 animate-fade-in-up opacity-0 stagger-3">
                 <div id="google-signin-slot" className="flex justify-center [&>div]:!w-full" />
                 <div className="relative my-6">
@@ -451,29 +546,38 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Tab Switcher */}
-            <div className="animate-fade-in-up opacity-0 stagger-3">
-              <div className="flex bg-muted rounded-xl p-1 mb-6">
-                {(["login", "register"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => { setActiveTab(tab); setError(null); setFieldErrors({}); }}
-                    className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ${
-                      activeTab === tab
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {tab === "login" ? "登录" : "注册"}
-                  </button>
-                ))}
+            {/* Tab Switcher — only show for login/register */}
+            {(activeTab === "login" || activeTab === "register") && (
+              <div className="animate-fade-in-up opacity-0 stagger-3">
+                <div className="flex bg-muted rounded-xl p-1 mb-6">
+                  {(["login", "register"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => { setActiveTab(tab); setError(null); setSuccessMsg(null); setFieldErrors({}); }}
+                      className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ${
+                        activeTab === tab
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {tab === "login" ? "登录" : "注册"}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Error */}
             {error && (
               <Alert variant="destructive" className="mb-5 animate-fade-in-up">
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Success */}
+            {successMsg && (
+              <Alert className="mb-5 animate-fade-in-up border-emerald-200 bg-emerald-50 text-emerald-700">
+                <AlertDescription>{successMsg}</AlertDescription>
               </Alert>
             )}
 
@@ -493,8 +597,18 @@ export default function LoginPage() {
                     className="h-11 rounded-xl border-border/60 bg-muted/30 focus:bg-background transition-colors"
                   />
                 </div>
+
                 <div className="space-y-2 animate-fade-in-up opacity-0 stagger-4">
-                  <Label htmlFor="login-password" className="text-sm font-medium">密码</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="login-password" className="text-sm font-medium">密码</Label>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab("forgot"); setError(null); setSuccessMsg(null); setForgotSent(false); }}
+                      className="text-xs text-orange-500 hover:text-orange-600 font-medium transition-colors"
+                    >
+                      忘记密码？
+                    </button>
+                  </div>
                   <Input
                     id="login-password"
                     type="password"
@@ -506,6 +620,7 @@ export default function LoginPage() {
                     className="h-11 rounded-xl border-border/60 bg-muted/30 focus:bg-background transition-colors"
                   />
                 </div>
+
                 <div className="pt-2 animate-fade-in-up opacity-0 stagger-5">
                   <Button
                     type="submit"
@@ -520,6 +635,7 @@ export default function LoginPage() {
                     ) : "登录"}
                   </Button>
                 </div>
+
                 <p className="text-center text-sm text-muted-foreground animate-fade-in-up opacity-0 stagger-5">
                   还没有账号？{" "}
                   <button type="button" onClick={() => setActiveTab("register")} className="text-orange-500 hover:text-orange-600 font-medium transition-colors">
@@ -527,6 +643,162 @@ export default function LoginPage() {
                   </button>
                 </p>
               </form>
+            )}
+
+            {/* ---- Forgot Password Form ---- */}
+            {activeTab === "forgot" && (
+              <div className="space-y-4 animate-fade-in-up">
+                {!forgotSent ? (
+                  <form onSubmit={handleForgotPassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="forgot-email" className="text-sm font-medium">注册邮箱</Label>
+                      <Input
+                        id="forgot-email"
+                        type="email"
+                        placeholder="name@example.com"
+                        value={forgotEmail}
+                        onChange={e => setForgotEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                        className="h-11 rounded-xl border-border/60 bg-muted/30 focus:bg-background transition-colors"
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="w-full h-11 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300"
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                          发送中...
+                        </span>
+                      ) : "发送重置链接"}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600">
+                        <path d="M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h8" />
+                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                        <path d="m16 19 2 2 4-4" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      重置邮件已发送，请检查你的收件箱（和垃圾邮件文件夹）。
+                    </p>
+                  </div>
+                )}
+
+                <p className="text-center text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab("login"); setError(null); setSuccessMsg(null); setForgotSent(false); }}
+                    className="text-orange-500 hover:text-orange-600 font-medium transition-colors"
+                  >
+                    返回登录
+                  </button>
+                </p>
+              </div>
+            )}
+
+            {/* ---- Reset Password Form ---- */}
+            {activeTab === "reset" && (
+              <div className="space-y-4 animate-fade-in-up">
+                {!resetSuccess ? (
+                  <form onSubmit={handleResetPassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="reset-password" className="text-sm font-medium">
+                        新密码 <span className="text-orange-500">*</span>
+                      </Label>
+                      <Input
+                        id="reset-password"
+                        type="password"
+                        placeholder="至少 8 位"
+                        value={resetPassword}
+                        onChange={e => { setResetPassword(e.target.value); setFieldErrors(prev => ({ ...prev, password: "" })); }}
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                        className="h-11 rounded-xl border-border/60 bg-muted/30 focus:bg-background transition-colors"
+                      />
+                      {resetPassword.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3].map(i => (
+                              <div
+                                key={i}
+                                className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+                                  i <= resetPwStrength.level ? resetPwStrength.bgColor : "bg-muted"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <p className={`text-xs font-medium ${resetPwStrength.color}`}>
+                            密码强度: {resetPwStrength.label}
+                          </p>
+                        </div>
+                      )}
+                      {fieldErrors.password && <p className="text-xs text-red-500">{fieldErrors.password}</p>}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="reset-confirm-password" className="text-sm font-medium">
+                        确认新密码 <span className="text-orange-500">*</span>
+                      </Label>
+                      <Input
+                        id="reset-confirm-password"
+                        type="password"
+                        placeholder="再次输入新密码"
+                        value={resetConfirmPassword}
+                        onChange={e => { setResetConfirmPassword(e.target.value); setFieldErrors(prev => ({ ...prev, confirmPassword: "" })); }}
+                        required
+                        autoComplete="new-password"
+                        className="h-11 rounded-xl border-border/60 bg-muted/30 focus:bg-background transition-colors"
+                      />
+                      {fieldErrors.confirmPassword && <p className="text-xs text-red-500">{fieldErrors.confirmPassword}</p>}
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="w-full h-11 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300"
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                          重置中...
+                        </span>
+                      ) : "重置密码"}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600">
+                        <path d="m9 12 2 2 4-4" />
+                        <circle cx="12" cy="12" r="10" />
+                      </svg>
+                    </div>
+                    <p className="font-medium text-emerald-700 mb-2">密码重置成功</p>
+                    <p className="text-sm text-muted-foreground">
+                      你的密码已更新，现在可以使用新密码登录。
+                    </p>
+                  </div>
+                )}
+
+                <p className="text-center text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab("login"); setError(null); setSuccessMsg(null); setResetSuccess(false); window.history.replaceState({}, "", "/login"); }}
+                    className="text-orange-500 hover:text-orange-600 font-medium transition-colors"
+                  >
+                    返回登录
+                  </button>
+                </p>
+              </div>
             )}
 
             {/* ---- Register Form ---- */}
@@ -625,8 +897,7 @@ export default function LoginPage() {
                 {/* SMTP Password */}
                 <div className="space-y-2 animate-fade-in-up opacity-0 stagger-4">
                   <Label className="text-sm font-medium text-muted-foreground">
-                    发件密码
-                    <span className="text-xs ml-1.5 text-muted-foreground/70">(可选)</span>
+                    发件密码 <span className="text-xs ml-1.5 text-muted-foreground/70">(可选)</span>
                   </Label>
                   <Input
                     type="password"
@@ -637,7 +908,12 @@ export default function LoginPage() {
                   />
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Gmail 需「应用专用密码」，QQ/163 需「授权码」。
-                    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" className="text-orange-500 hover:text-orange-600 font-medium inline-flex items-center gap-0.5 ml-1 transition-colors">
+                    <a
+                      href="https://myaccount.google.com/apppasswords"
+                      target="_blank"
+                      rel="noopener"
+                      className="text-orange-500 hover:text-orange-600 font-medium inline-flex items-center gap-0.5 ml-1 transition-colors"
+                    >
                       获取引导 <ChevronRightIcon />
                     </a>
                   </p>
@@ -658,6 +934,7 @@ export default function LoginPage() {
                     ) : "创建账号"}
                   </Button>
                 </div>
+
                 <p className="text-center text-sm text-muted-foreground animate-fade-in-up opacity-0 stagger-5">
                   已有账号？{" "}
                   <button type="button" onClick={() => setActiveTab("login")} className="text-orange-500 hover:text-orange-600 font-medium transition-colors">
