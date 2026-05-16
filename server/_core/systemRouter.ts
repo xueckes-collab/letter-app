@@ -5,11 +5,6 @@ import * as db from "../db";
 
 export const systemRouter = router({
   health: publicProcedure
-    .input(
-      z.object({
-        timestamp: z.number().min(0, "timestamp cannot be negative"),
-      })
-    )
     .query(async () => {
       const checks: Record<string, unknown> = {
         ok: false,
@@ -25,12 +20,6 @@ export const systemRouter = router({
         checks.ok = true;
       } catch (e) {
         checks.database = "disconnected";
-        checks.databaseError =
-          e instanceof Error
-            ? e.cause instanceof Error
-              ? e.cause.message
-              : e.message
-            : String(e);
         checks.ok = false;
       }
 
