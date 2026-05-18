@@ -124,7 +124,12 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(opts => {
+      if (!opts.ctx.user) return null;
+      // Strip sensitive fields before sending to client
+      const { passwordHash, ...safeUser } = opts.ctx.user as Record<string, unknown>;
+      return safeUser;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -359,6 +364,14 @@ export const appRouter = router({
           } catch { failedCount++; }
         }
         return { successCount, failedCount, generatedCount, batchId, importedLeadIds };
+      }),
+
+    deleteMany: protectedProcedure
+      .input(z.object({ leadIds: z.array(z.number()).min(1).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        const { deleteLeadsByIds } = await import('./db');
+        const deleted = await deleteLeadsByIds(input.leadIds, ctx.user.id);
+        return { deleted };
       }),
   }),
 
