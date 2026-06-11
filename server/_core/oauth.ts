@@ -73,7 +73,7 @@ function clearLoginFailures(email: string) {
 }
 
 // Clean up stale entries every 30 minutes
-setInterval(() => {
+const loginAttemptCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, record] of loginAttempts) {
     if (record.lockedUntil < now && record.count > 0) {
@@ -81,6 +81,7 @@ setInterval(() => {
     }
   }
 }, 30 * 60 * 1000);
+loginAttemptCleanupTimer.unref?.();
 
 export function registerOAuthRoutes(app: Express) {
   const googleClient = ENV.googleClientId
@@ -377,7 +378,7 @@ export function registerOAuthRoutes(app: Express) {
         "openid",
         "email",
       ],
-      state: accountId,
+      state: String(accountId),
     });
     res.redirect(authUrl);
   });

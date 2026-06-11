@@ -417,7 +417,7 @@ async function checkUserReplies(userId: number) {
                                 tlsOptions: { rejectUnauthorized: false },
                                 connTimeout: 15000,
                                 authTimeout: 15000,
-                    });
+                    } as any);
 
                 await runImapCheck(imap, account.email, contactedLeads, userId, db);
           } catch (error: any) {

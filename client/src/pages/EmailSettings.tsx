@@ -174,16 +174,16 @@ export default function EmailSettingsPage() {
     const [signatureLogoUrl, setSignatureLogoUrl] = useState<string | null>(null);
     const [signatureSaving, setSignatureSaving] = useState(false);
 
-  const emailSettings = trpc.profile.getEmailSettings.useQuery(undefined, {
-        onSuccess: (data: any) => {
-                if (data) {
-                          setSignature(data.signature || '');
-                          setFontSize(data.fontSize || 14);
-                          setFontFamily(data.fontFamily || 'Arial, sans-serif');
-                          setSignatureLogoUrl(data.signatureLogoUrl || null);
-                }
-        },
-  });
+  const emailSettings = trpc.profile.getEmailSettings.useQuery();
+
+  useEffect(() => {
+        if (emailSettings.data) {
+                setSignature(emailSettings.data.signature || '');
+                setFontSize(emailSettings.data.fontSize || 14);
+                setFontFamily(emailSettings.data.fontFamily || 'Arial, sans-serif');
+                setSignatureLogoUrl(emailSettings.data.signatureLogoUrl || null);
+        }
+  }, [emailSettings.data]);
 
   const updateEmailSettingsMutation = trpc.profile.updateEmailSettings.useMutation({
         onSuccess: () => {

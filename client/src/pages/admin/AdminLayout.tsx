@@ -95,15 +95,16 @@ function AdminNotificationBell() {
 // ─── Main AdminLayout ───────────────────────────────────────────
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
+  const displayUser = user as { name?: string | null; email?: string | null; role?: string | null } | null;
   const { theme, setTheme } = useTheme();
   const [location, setLocation] = useLocation();
 
   // ── Guard ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!loading && (!user || user.role !== "admin")) {
+    if (!loading && (!displayUser || displayUser.role !== "admin")) {
       setLocation("/");
     }
-  }, [user, loading, setLocation]);
+  }, [displayUser, loading, setLocation]);
 
   if (loading) {
     return (
@@ -116,7 +117,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  if (!user || user.role !== "admin") return null;
+  if (!displayUser || displayUser.role !== "admin") return null;
 
   // ── Current section ────────────────────────────────────────
   const section = location.replace("/admin/", "").replace("/admin", "") || "dashboard";
@@ -176,12 +177,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <button className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/8 transition-colors text-left">
                 <Avatar className="h-7 w-7 shrink-0">
                   <AvatarFallback className="text-xs bg-primary/20 text-primary">
-                    {user.name?.charAt(0).toUpperCase() ?? "A"}
+                    {displayUser?.name?.charAt(0).toUpperCase() ?? "A"}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-white truncate">{user.name ?? "-"}</p>
-                  <p className="text-[10px] text-white/40 truncate">{user.email ?? "-"}</p>
+                  <p className="text-xs font-medium text-white truncate">{displayUser?.name ?? "-"}</p>
+                  <p className="text-[10px] text-white/40 truncate">{displayUser?.email ?? "-"}</p>
                 </div>
               </button>
             </DropdownMenuTrigger>

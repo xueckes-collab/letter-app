@@ -465,15 +465,17 @@ export const appRouter = router({
           try {
             const newLead = await createLead({
               userId: ctx.user.id,
-              name: lead.name,
-              company: lead.company || '',
+              contactName: lead.name,
+              companyName: lead.company || '',
               email: lead.email,
               website: lead.website || '',
-              title: lead.title || '',
-              phone: lead.phone || '',
-              status: 'active',
+              role: lead.title || '',
+              source: 'excel',
+              status: 'new',
+              replyStatus: 'not_checked',
+              statusColor: 'slate',
             });
-            results.push({ success: true, leadId: newLead.id, email: lead.email });
+            results.push({ success: true, leadId: newLead, email: lead.email });
           } catch (err: any) {
             results.push({ success: false, email: lead.email, error: err.message });
           }
@@ -1070,7 +1072,7 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) return { items: [], total: 0 };
         const { emailSequences: esTable, users: usersTable, leads: leadsTable } = await import('../drizzle/schema');
-        const { desc, eq, leftJoin } = await import('drizzle-orm')
+        const { desc, eq } = await import('drizzle-orm')
         const offset = (input.page - 1) * input.limit;
         const cols = {
           id: esTable.id, userId: esTable.userId, leadId: esTable.leadId,

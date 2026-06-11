@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
-  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSuare,
+  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSquare,
   ChevronDown, ChevronUp, Copy, Check, Globe, Building2,
   Brain, SkipForward, CheckCircle2, Clock, Pencil
 } from "lucide-react";

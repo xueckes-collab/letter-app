@@ -129,6 +129,8 @@ export async function verifySmtp(config: {
     }
 }
 
+export const verifySMTP = verifySmtp;
+
 // ─── Snov.io Campaign Sender ──────────────────────────────────────────────────
 // Snov.io doesn't have a direct "send email" API.
 // Instead, we add prospects to a Snov.io list, then the user can

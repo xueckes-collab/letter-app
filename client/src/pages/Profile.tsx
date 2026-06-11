@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import {
   Loader2, Save, Building2, Package, Award, Clock, FileUp, Trash2,
@@ -24,8 +24,9 @@ export default function ProfilePage() {
   });
 
   const [isDragging, setIsDragging] = useState(false);
+  type UploadQueueItem = { file: File; status: 'pending' | 'uploading' | 'done' | 'error'; progress?: string };
   const [uploadQueue, setUploadQueue] = useState<
-    { file: File; status: 'pending' | 'uploading' | 'done' | 'error'; progress?: string }[]
+    UploadQueueItem[]
   >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isUploading = uploadQueue.some((item) => item.status === 'uploading');
@@ -54,16 +55,19 @@ export default function ProfilePage() {
     }
   }, [profile.data]);
 
-const uploadSingleFile = useCallback(async (file, queueIndex) => {
+const uploadSingleFile = useCallback(async (file: File, queueIndex: number) => {
     if (file.size > 100 * 1024 * 1024) {
       setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'error', progress: '超过 100MB' } : item));
       return;
     }
     setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'uploading', progress: '读取中...' } : item));
     try {
-      const base64 = await new Promise((resolve, reject) => {
+      const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve((reader.result).split(',')[1]);
+        reader.onload = () => {
+          const result = typeof reader.result === 'string' ? reader.result : '';
+          resolve(result.split(',')[1] || '');
+        };
         reader.onerror = () => reject(new Error('文件读取失败'));
         reader.readAsDataURL(file);
       });
@@ -71,32 +75,33 @@ const uploadSingleFile = useCallback(async (file, queueIndex) => {
       await uploadAsset.mutateAsync({ fileName: file.name, mimeType: file.type || 'application/octet-stream', fileSize: file.size, fileBase64: base64 });
       setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'done', progress: '完成' } : item));
     } catch (err) {
-      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'error', progress: err?.message || '上传失败' } : item));
+      const message = err instanceof Error ? err.message : '上传失败';
+      setUploadQueue((prev) => prev.map((item, i) => i === queueIndex ? { ...item, status: 'error', progress: message } : item));
     }
   }, [uploadAsset]);
 
-  const handleFiles = useCallback(async (files) => {
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
     const startIndex = uploadQueue.length;
-    const newItems = fileArray.map((file) => ({ file, status: 'pending', progress: '等待中...' }));
+    const newItems: UploadQueueItem[] = fileArray.map((file) => ({ file, status: 'pending', progress: '等待中...' }));
     setUploadQueue((prev) => [...prev, ...newItems]);
     for (let i = 0; i < fileArray.length; i++) { await uploadSingleFile(fileArray[i], startIndex + i); }
     setTimeout(() => { setUploadQueue((prev) => prev.filter((item) => item.status !== 'done')); }, 3000);
   }, [uploadQueue.length, uploadSingleFile]);
 
-  const handleFileChange = useCallback((e) => {
+  const handleFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) handleFiles(files);
     e.target.value = '';
   }, [handleFiles]);
 
-  const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); }, []);
-  const handleDragEnter = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
-  const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); if (e.currentTarget === e.target) setIsDragging(false); }, []);
-  const handleDrop = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); const files = e.dataTransfer.files; if (files && files.length > 0) handleFiles(files); }, [handleFiles]);
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); }, []);
+  const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); if (e.currentTarget === e.target) setIsDragging(false); }, []);
+  const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); const files = e.dataTransfer.files; if (files && files.length > 0) handleFiles(files); }, [handleFiles]);
 
-  const handleDeleteAsset = useCallback((assetId) => {
+  const handleDeleteAsset = useCallback((assetId: number) => {
     if (window.confirm('确定要删除这个文件吗？')) { deleteAsset.mutate({ assetId }); }
   }, [deleteAsset]);
 

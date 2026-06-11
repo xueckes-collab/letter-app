@@ -4,6 +4,8 @@
 
 # Build outputs
 dist/
+dist-electron/
+release/
 build/
 *.dist
 
@@ -102,6 +104,8 @@ tmp/
 temp/
 
 # Database
+.data/
+.data-smoke-*/
 *.db
 *.sqlite
 *.sqlite3

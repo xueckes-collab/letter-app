@@ -1,6 +1,10 @@
-import { eq, and, desc, asc, like, or, sql, inArray } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { eq, and, desc, asc, like, or, sql, inArray, isNotNull, lte } from "drizzle-orm";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as schema from "../drizzle/schema";
 import {
   InsertUser, users,
   senderProfiles, InsertSenderProfile, SenderProfile,
@@ -20,25 +24,55 @@ import {
   passwordResetTokens,
   authLogs,
 } from "../drizzle/schema";
+import { runSqliteMigrations } from "./_core/sqliteMigration";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+type AppDb = ReturnType<typeof drizzle<typeof schema>>;
 
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      const pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
-          : false,
-      });
-      _db = drizzle(pool);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+let _sqlite: Database.Database | null = null;
+let _db: AppDb | null = null;
+
+function resolveDataDir() {
+  if (process.env.LETTER_APP_DATA_DIR) {
+    return process.env.LETTER_APP_DATA_DIR;
   }
-  return _db;
+  if (process.env.NODE_ENV === "test") {
+    return ":memory:";
+  }
+  return path.resolve(process.cwd(), ".data");
+}
+
+export function getSqliteDatabasePath() {
+  if (process.env.SQLITE_DATABASE_PATH) {
+    return process.env.SQLITE_DATABASE_PATH;
+  }
+
+  const dataDir = resolveDataDir();
+  if (dataDir === ":memory:") {
+    return dataDir;
+  }
+
+  return path.join(dataDir || path.join(os.homedir(), ".letter-app"), "letter.db");
+}
+
+export function getLocalUploadsDir() {
+  const dataDir = resolveDataDir();
+  if (dataDir === ":memory:") {
+    return path.resolve(process.cwd(), ".data", "uploads");
+  }
+  return path.join(dataDir, "uploads");
+}
+
+export async function getDb(): Promise<AppDb> {
+  if (!_db) {
+    const dbPath = getSqliteDatabasePath();
+    if (dbPath !== ":memory:") {
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    }
+    _sqlite = new Database(dbPath);
+    runSqliteMigrations(_sqlite);
+    _db = drizzle(_sqlite, { schema });
+  }
+  return _db!;
 }
 
 // ============================================================
@@ -353,7 +387,7 @@ export async function getUnreadNotificationCount(userId: number) {
   const result = await db.select({ count: sql<number>`count(*)` })
     .from(notifications)
     .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
-  return result[0]?.count || 0;
+  return Number(result[0]?.count ?? 0);
 }
 
 export async function markNotificationRead(notificationId: number, userId: number) {
@@ -383,7 +417,8 @@ export async function getLeadsReadyForFollowUp(userId: number) {
       eq(leadStates.userId, userId),
       eq(leadStates.autoFollowUpEnabled, true),
       eq(leadStates.hasReply, false),
-      sql`${leadStates.followUpDueAt} IS NOT NULL AND ${leadStates.followUpDueAt} <= ${now}`
+      isNotNull(leadStates.followUpDueAt),
+      lte(leadStates.followUpDueAt, now)
     ));
 
   const result = [];
@@ -467,11 +502,13 @@ export async function getEmailAccountsByUser(userId: number): Promise<EmailAccou
     .orderBy(desc(emailAccounts.createdAt));
 }
 
-export async function getEmailAccountById(accountId: number, userId: number): Promise<EmailAccount | undefined> {
+export async function getEmailAccountById(accountId: number, userId?: number): Promise<EmailAccount | undefined> {
   const db = await getDb();
-  if (!db) return undefined;
+  const conditions = userId === undefined
+    ? eq(emailAccounts.id, accountId)
+    : and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId));
   const rows = await db.select().from(emailAccounts)
-    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
+    .where(conditions)
     .limit(1);
   return rows[0];
 }
@@ -491,17 +528,35 @@ export async function getDefaultEmailAccount(userId: number): Promise<EmailAccou
   return rows[0];
 }
 
-export async function updateEmailAccount(accountId: number, userId: number, data: Partial<InsertEmailAccount>): Promise<void> {
+export async function updateEmailAccount(
+  accountId: number,
+  userId: number,
+  data: Partial<InsertEmailAccount>
+): Promise<void>;
+export async function updateEmailAccount(
+  accountId: number,
+  data: Partial<InsertEmailAccount>
+): Promise<void>;
+export async function updateEmailAccount(
+  accountId: number,
+  userIdOrData: number | Partial<InsertEmailAccount>,
+  maybeData?: Partial<InsertEmailAccount>
+): Promise<void> {
   const db = await getDb();
-  if (!db) return;
+  const userId = typeof userIdOrData === "number" ? userIdOrData : undefined;
+  const data = typeof userIdOrData === "number" ? maybeData! : userIdOrData;
 
-  if (data.isDefault) {
+  if (data.isDefault && userId !== undefined) {
     await db.update(emailAccounts).set({ isDefault: false })
       .where(eq(emailAccounts.userId, userId));
   }
 
+  const conditions = userId === undefined
+    ? eq(emailAccounts.id, accountId)
+    : and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId));
+
   await db.update(emailAccounts).set(data)
-    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)));
+    .where(conditions);
 }
 
 export async function deleteEmailAccount(accountId: number, userId: number): Promise<void> {
@@ -848,7 +903,7 @@ export async function getAuthLogCount() {
   const result = await db
     .select({ count: sql<number>`count(*)` })
     .from(authLogs);
-  return result[0]?.count || 0;
+  return Number(result[0]?.count ?? 0);
 }
 
 export async function getSentEmailLogs(options: {
