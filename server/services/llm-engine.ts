@@ -33,6 +33,21 @@ export interface WebsiteAnalysisResult {
   recentActivity: string[];
   competitiveContext: string;
   hookOpportunities: string[];
+  sourceUrls: string[];
+  evidence: WebsiteEvidence[];
+  hookEvidence: HookEvidence[];
+}
+
+export interface WebsiteEvidence {
+  sourceUrl: string;
+  pageType: string;
+  text: string;
+}
+
+export interface HookEvidence {
+  hook: string;
+  sourceUrl: string;
+  evidenceText: string;
 }
 
 export interface ICPMatchResult {
@@ -228,14 +243,224 @@ export function reviewGeneratedEmailDraft(email: EmailResult, type: "warm" | "fo
 }
 
 // ============================================================
+// EVIDENCE BACKTRACE HELPERS
+// ============================================================
+
+const URL_PATTERN = /https?:\/\/[^\s)\]}>"']+/gi;
+const MAX_ANALYSIS_EVIDENCE = 24;
+const MAX_EMAIL_HOOK_EVIDENCE = 8;
+
+const HIGH_VALUE_EVIDENCE_TERMS = [
+  "product",
+  "products",
+  "collection",
+  "collections",
+  "catalog",
+  "case study",
+  "project",
+  "projects",
+  "certified",
+  "certification",
+  "sustainable",
+  "sustainability",
+  "launch",
+  "new",
+  "distributor",
+  "wholesale",
+  "retail",
+  "installer",
+  "contractor",
+  "delivery",
+  "in-stock",
+  "warehouse",
+  "showroom",
+  "market",
+  "premium",
+  "eco",
+  "commercial",
+  "residential",
+];
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map(value => value.trim()).filter(Boolean)));
+}
+
+function trimEvidenceText(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+function evidenceScore(text: string) {
+  const normalized = compact(text);
+  return HIGH_VALUE_EVIDENCE_TERMS.reduce((score, term) => score + (normalized.includes(term) ? 1 : 0), 0);
+}
+
+function splitEvidenceCandidates(line: string) {
+  const normalized = trimEvidenceText(line);
+  if (!normalized || normalized.length < 35) return [];
+
+  const sentences = normalized.split(/(?<=[.!?])\s+/).map(trimEvidenceText).filter(Boolean);
+  if (sentences.length > 1) {
+    return sentences.filter(sentence => sentence.length >= 35);
+  }
+
+  const chunks: string[] = [];
+  for (let index = 0; index < normalized.length; index += 220) {
+    const chunk = trimEvidenceText(normalized.slice(index, index + 220));
+    if (chunk.length >= 35) chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function parseExplicitEvidenceLine(line: string, fallbackUrl: string, fallbackPageType: string): WebsiteEvidence {
+  const explicitSource = line.match(/\(source:\s*(https?:\/\/[^)\s]+)\s*\)/i)?.[1] || "";
+  const evidenceType = line.match(/^-\s*\[([^\]]+)\]/)?.[1]?.trim().toLowerCase().replace(/\s+/g, "_") || fallbackPageType;
+  const text = trimEvidenceText(
+    line
+      .replace(/^-\s*\[[^\]]+\]\s*/, "")
+      .replace(/\(source:\s*https?:\/\/[^)]+\)\s*/i, ""),
+  );
+
+  return {
+    sourceUrl: explicitSource || fallbackUrl,
+    pageType: evidenceType,
+    text,
+  };
+}
+
+export function buildWebsiteEvidenceInput(scrapedContent: string) {
+  const allUrls = uniqueStrings(scrapedContent.match(URL_PATTERN) || []);
+  const rootUrl = scrapedContent.match(/^=== Website Analysis:\s*(.+?)\s*===/m)?.[1]?.trim();
+  const sourceUrls = uniqueStrings([rootUrl || "", ...allUrls]);
+  let currentUrl = rootUrl || sourceUrls[0] || "unknown";
+  let currentPageType = "homepage";
+
+  const candidates: WebsiteEvidence[] = [];
+  for (const rawLine of scrapedContent.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const pageMatch = line.match(/^---\s*([A-Z0-9 _-]+)\s+Page\s+\((https?:\/\/[^)]+)\)\s*---$/i);
+    if (pageMatch) {
+      currentPageType = pageMatch[1].toLowerCase().replace(/\s+/g, "_");
+      currentUrl = pageMatch[2];
+      continue;
+    }
+
+    if (/^---/.test(line) || /^===/.test(line)) continue;
+
+    const parsedLine = parseExplicitEvidenceLine(line, currentUrl, currentPageType);
+    const sourceUrl = parsedLine.sourceUrl;
+    const pageType = parsedLine.pageType;
+    const normalizedLine = parsedLine.text || line;
+    const isMetadataSignal = /^(title|description|key headings):/i.test(normalizedLine);
+    for (const snippet of splitEvidenceCandidates(normalizedLine)) {
+      const score = evidenceScore(snippet);
+      if (!isMetadataSignal && score === 0 && candidates.filter(item => item.sourceUrl === sourceUrl).length >= 2) continue;
+      candidates.push({
+        sourceUrl,
+        pageType,
+        text: snippet,
+      });
+    }
+  }
+
+  const evidence = candidates
+    .sort((left, right) => evidenceScore(right.text) - evidenceScore(left.text))
+    .slice(0, MAX_ANALYSIS_EVIDENCE);
+
+  const evidencePack = {
+    sourceUrls,
+    evidence,
+  };
+
+  return {
+    sourceUrls,
+    evidence,
+    modelInput: evidence.length
+      ? `STRUCTURED_EVIDENCE_JSON:\n${JSON.stringify(evidencePack, null, 2)}\n\nRAW_SCRAPED_CONTENT:\n${scrapedContent}`
+      : scrapedContent,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function extractFirstUrl(value: string) {
+  return value.match(URL_PATTERN)?.[0] || "";
+}
+
+export function collectHookEvidenceForPrompt(websiteAnalysis: Record<string, unknown> | WebsiteAnalysisResult): HookEvidence[] {
+  const hooks: HookEvidence[] = [];
+  const hookEvidence = Array.isArray(websiteAnalysis.hookEvidence) ? websiteAnalysis.hookEvidence : [];
+  for (const item of hookEvidence) {
+    if (!isRecord(item)) continue;
+    const hook = readString(item.hook);
+    const sourceUrl = readString(item.sourceUrl);
+    const evidenceText = readString(item.evidenceText);
+    if (hook && sourceUrl && evidenceText) hooks.push({ hook, sourceUrl, evidenceText });
+  }
+
+  const hookOpportunities = Array.isArray(websiteAnalysis.hookOpportunities) ? websiteAnalysis.hookOpportunities : [];
+  for (const item of hookOpportunities) {
+    const hook = readString(item);
+    const sourceUrl = extractFirstUrl(hook);
+    if (hook && sourceUrl) hooks.push({ hook, sourceUrl, evidenceText: hook });
+  }
+
+  const evidence = Array.isArray(websiteAnalysis.evidence) ? websiteAnalysis.evidence : [];
+  for (const item of evidence) {
+    if (!isRecord(item)) continue;
+    const evidenceText = readString(item.text);
+    const sourceUrl = readString(item.sourceUrl);
+    if (evidenceText && sourceUrl) hooks.push({ hook: evidenceText, sourceUrl, evidenceText });
+  }
+
+  const seen = new Set<string>();
+  return hooks.filter(item => {
+    const key = `${item.sourceUrl}\n${item.evidenceText}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, MAX_EMAIL_HOOK_EVIDENCE);
+}
+
+export function buildHookEvidencePromptClause(hookEvidence: HookEvidence[]) {
+  if (!hookEvidence.length) {
+    return `## 非群发 hook 证据规则
+- 当前客户资料没有可回溯的 hookEvidence。不要编造具体网页细节、活动、产品线或认证。
+- 如果证据不足，第一句只能使用低风险观察，并在 strategyNotes 写明"缺少可验证网站证据"。`;
+  }
+
+  return `## 非群发 hook 证据规则
+- 第一封开发信的开场 hook 必须来自 hookEvidenceForEmail 中的一条证据。
+- 不允许把没有 sourceUrl 支撑的猜测写成客户事实。
+- strategyNotes 必须写明本次使用的 hook 来源 URL。
+- 如果 hookEvidenceForEmail 与我方产品无关，宁可轻问或建议跳过，不要硬编关联。`;
+}
+
+// ============================================================
 // WEBSITE ANALYSIS（网站深度分析）
 // ============================================================
 
 export async function analyzeWebsite(scrapedContent: string, senderContext: string): Promise<WebsiteAnalysisResult> {
+  const evidenceInput = buildWebsiteEvidenceInput(scrapedContent);
+
   return gptJSON<WebsiteAnalysisResult>(
     `你是一位拥有15年国际贸易经验的B2B销售情报分析师。你的任务是深度分析目标客户的网站，为后续写开发信提供精准情报。
 
 你的分析必须回答一个核心问题：**这家公司现在最在意什么？我们有没有机会？**
+
+## 证据优先原则（强制）
+- 如果输入中包含 STRUCTURED_EVIDENCE_JSON，必须优先使用其中的 evidence/sourceUrls，再参考 RAW_SCRAPED_CONTENT。
+- 每个"非群发"开发信 hook 必须能追溯到一个 sourceUrl 和一段 evidenceText。
+- hookOpportunities 每条都要包含可验证来源，例如："客户新增 hotel renovation project 页面 [source: https://...]"。
+- hookEvidence 必须只记录有网页证据支撑的 hook；没有证据就返回空数组，不要补脑。
+- 不允许把行业常识、猜测、我方卖点包装成客户网站事实。
 
 请按以下步骤系统分析：
 
@@ -276,7 +501,7 @@ export async function analyzeWebsite(scrapedContent: string, senderContext: stri
 ${senderContext}
 
 所有结论必须有网站内容作为依据。如果信息不足，直接说"未找到相关信息"，不要编造。`,
-    `请分析以下网站内容：\n\n${scrapedContent}`,
+    `请分析以下网站内容：\n\n${evidenceInput.modelInput}`,
     {
       name: "website_analysis",
       strict: true,
@@ -296,11 +521,41 @@ ${senderContext}
           buyerPersona: { type: "string", description: "买家画像：这类公司的采购决策者通常是什么角色、关心什么" },
           recentActivity: { type: "array", items: { type: "string" }, description: "最近的业务动态（新店、新产品、扩张等）" },
           competitiveContext: { type: "string", description: "他们面临的竞争环境和供应链挑战" },
-          hookOpportunities: { type: "array", items: { type: "string" }, description: "可以用在开发信开头的具体钩子（证明不是群发的细节）" },
+          hookOpportunities: { type: "array", items: { type: "string" }, description: "可以用在开发信开头的具体钩子。每条必须包含[source: URL]；没有证据不要写" },
+          sourceUrls: { type: "array", items: { type: "string" }, description: "本次分析实际引用的网站来源URL" },
+          evidence: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                sourceUrl: { type: "string" },
+                pageType: { type: "string" },
+                text: { type: "string" },
+              },
+              required: ["sourceUrl", "pageType", "text"],
+              additionalProperties: false,
+            },
+            description: "支撑分析结论的网页证据片段",
+          },
+          hookEvidence: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                hook: { type: "string" },
+                sourceUrl: { type: "string" },
+                evidenceText: { type: "string" },
+              },
+              required: ["hook", "sourceUrl", "evidenceText"],
+              additionalProperties: false,
+            },
+            description: "可直接用于开发信开场的hook及其网页证据。没有证据时返回空数组",
+          },
         },
         required: ["industry", "businessModel", "productFocus", "marketPosition", "websiteSignals",
           "purchaseIntentScore", "triggerEvents", "companyName", "country", "rawSummary",
-          "buyerPersona", "recentActivity", "competitiveContext", "hookOpportunities"],
+          "buyerPersona", "recentActivity", "competitiveContext", "hookOpportunities",
+          "sourceUrls", "evidence", "hookEvidence"],
         additionalProperties: false,
       },
     },
@@ -432,9 +687,10 @@ export async function matchUSP(
 
 ## 第四步：邮件角度设计（最关键！）
 遵循"开发信教练"方法论：
-- **钩子（Hook）**：用客户网站上的某个具体细节开场，证明你做了功课，这不是群发
+- **钩子（Hook）**：优先使用 websiteAnalysis.hookEvidence/sourceUrls 中有来源证据的客户网站细节，证明你做了功课，这不是群发
 - **价值陈述**：一句话说清楚你能解决他什么问题（像人说话，不像广告）
 - **CTA**：压到最低门槛，让对方能"秒回"（比如"要不要我发个对比报价？"而不是"期待与您合作"）
+- 如果没有可回溯证据，不要编造客户具体动作；emailAngle.hook 写成轻量、诚实的观察。
 
 ## 第五步：避坑清单
 列出这封邮件绝对不能出现的内容：
@@ -508,6 +764,7 @@ export async function generateEmail(params: {
     replyAnalysis,
     followupStrategy,
   } = params;
+  const hookEvidenceForEmail = collectHookEvidenceForPrompt(websiteAnalysis);
 
   const promptKey =
     type === 'warm' ? 'email.warm' :
@@ -599,6 +856,12 @@ ${senderContext}`;
 记住：第一封信的任务不是成交，是开启对话。`;
   }
 
+  if (type !== 'reply') {
+    systemPrompt += `
+
+${buildHookEvidencePromptClause(hookEvidenceForEmail)}`;
+  }
+
   if (type === 'followup' && followupStrategy) {
     systemPrompt += `
 
@@ -649,6 +912,7 @@ ${JSON.stringify(replyAnalysis, null, 2)}
     emailType: type,
     contactName: contactName || 'there',
     websiteAnalysis,
+    hookEvidenceForEmail,
     icpMatch,
     uspMatch,
     round: round || 0,
@@ -701,6 +965,7 @@ ${JSON.stringify(replyAnalysis, null, 2)}
             emailType: type,
             contactName: contactName || "there",
             websiteAnalysis,
+            hookEvidenceForEmail,
             icpMatch,
             uspMatch,
             previousEmails,

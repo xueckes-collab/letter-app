@@ -22,9 +22,93 @@ type StartedServer = {
   close: () => Promise<void>;
 };
 
+type ScraplingWorkerPaths = {
+  resourceDir: string;
+  manifestPath: string;
+  executablePath: string | null;
+};
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let startedServer: StartedServer | null = null;
+
+function appRootDir() {
+  return path.resolve(__dirname, "..");
+}
+
+function scraplingWorkerExecutableNames() {
+  return process.platform === "win32"
+    ? ["scrapling-worker.exe", "scrapling_worker.exe", "worker.exe"]
+    : ["scrapling-worker", "scrapling_worker", "worker"];
+}
+
+function firstExistingDirectory(candidates: Array<string | null | undefined>) {
+  return candidates.find((candidate) => {
+    if (!candidate) return false;
+    try {
+      return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
+function firstExistingFile(candidates: string[]) {
+  return candidates.find((candidate) => {
+    try {
+      return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+function resolveScraplingWorkerPaths(): ScraplingWorkerPaths {
+  const rootDir = appRootDir();
+  const configuredResourceDir = process.env.SCRAPLING_WORKER_RESOURCE_DIR
+    ? path.resolve(process.env.SCRAPLING_WORKER_RESOURCE_DIR)
+    : null;
+
+  const packagedResourceDir = path.join(process.resourcesPath, "scrapling-worker");
+  const devResourceDir = firstExistingDirectory([
+    configuredResourceDir,
+    path.join(rootDir, ".desktop-resources", "scrapling-worker"),
+    path.join(rootDir, "build", "scrapling-worker"),
+    path.join(rootDir, "workers", "scrapling_worker", "dist"),
+    path.join(rootDir, "workers", "scrapling-worker", "dist"),
+    path.join(rootDir, "workers", "scrapling_worker", "build"),
+    path.join(rootDir, "workers", "scrapling-worker", "build"),
+  ]);
+
+  const resourceDir = app.isPackaged
+    ? configuredResourceDir ?? packagedResourceDir
+    : devResourceDir ?? configuredResourceDir ?? path.join(rootDir, ".desktop-resources", "scrapling-worker");
+
+  const configuredExecutablePath = process.env.SCRAPLING_WORKER_PATH
+    ? path.resolve(process.env.SCRAPLING_WORKER_PATH)
+    : null;
+  const executablePath =
+    configuredExecutablePath && fs.existsSync(configuredExecutablePath)
+      ? configuredExecutablePath
+      : firstExistingFile(scraplingWorkerExecutableNames().map((fileName) => path.join(resourceDir, fileName))) ?? null;
+
+  return {
+    resourceDir,
+    manifestPath: path.join(resourceDir, "packaging-manifest.json"),
+    executablePath,
+  };
+}
+
+function applyScraplingWorkerEnv() {
+  const workerPaths = resolveScraplingWorkerPaths();
+
+  process.env.SCRAPLING_WORKER_RESOURCE_DIR ||= workerPaths.resourceDir;
+  process.env.SCRAPLING_WORKER_MANIFEST_PATH ||= workerPaths.manifestPath;
+
+  if (workerPaths.executablePath) {
+    process.env.SCRAPLING_WORKER_PATH ||= workerPaths.executablePath;
+  }
+}
 
 function readConfig(configPath: string): DesktopConfig {
   try {
@@ -89,6 +173,8 @@ function applyDesktopEnv(userDataPath: string) {
       process.env[envKey] ||= decryptSecret(rawValue);
     }
   }
+
+  applyScraplingWorkerEnv();
 }
 
 async function startBackend() {
@@ -144,10 +230,15 @@ async function createWindow() {
 
 ipcMain.handle("desktop:get-info", () => {
   const userDataPath = app.getPath("userData");
+  const scraplingWorkerPaths = resolveScraplingWorkerPaths();
+
   return {
     dataDir: userDataPath,
     dbPath: path.join(userDataPath, "letter.db"),
     uploadsDir: path.join(userDataPath, "uploads"),
+    scraplingWorkerResourceDir: scraplingWorkerPaths.resourceDir,
+    scraplingWorkerPath: scraplingWorkerPaths.executablePath,
+    scraplingWorkerAvailable: Boolean(scraplingWorkerPaths.executablePath),
   };
 });
 

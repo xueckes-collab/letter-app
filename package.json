@@ -1,6 +1,6 @@
 {
     "name": "letter-app",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "type": "module",
     "main": "dist-electron/main.js",
     "license": "MIT",
@@ -9,12 +9,14 @@
           "build:web": "vite build",
           "build:server": "node scripts/build-server.mjs",
           "build:electron": "node scripts/build-electron.mjs",
+          "desktop:build-worker": "node scripts/build-scrapling-worker.mjs",
+          "desktop:prepare-worker": "node scripts/prepare-scrapling-worker.mjs",
           "build": "pnpm build:web && pnpm build:server",
           "start": "cross-env NODE_ENV=production node dist/index.js",
-          "desktop:build": "pnpm build && pnpm build:electron",
+          "desktop:build": "pnpm build && pnpm build:electron && pnpm desktop:prepare-worker",
           "desktop:rebuild-native": "electron-rebuild -f -w better-sqlite3",
           "desktop:dev": "pnpm desktop:build && electron .",
-          "desktop:pack:win": "pnpm desktop:build && pnpm desktop:rebuild-native && cross-env NODE_OPTIONS=--no-deprecation NODE_NO_WARNINGS=1 electron-builder --win --x64",
+          "desktop:pack:win": "pnpm desktop:build-worker && pnpm desktop:build && pnpm desktop:rebuild-native && cross-env NODE_OPTIONS=--no-deprecation NODE_NO_WARNINGS=1 electron-builder --win --x64",
           "check": "tsc --noEmit",
           "format": "prettier --write .",
           "test": "vitest run",
@@ -156,6 +158,15 @@
           ],
           "asarUnpack": [
                 "node_modules/better-sqlite3/**"
+          ],
+          "extraResources": [
+                {
+                      "from": ".desktop-resources/scrapling-worker",
+                      "to": "scrapling-worker",
+                      "filter": [
+                            "**/*"
+                      ]
+                }
           ],
           "npmRebuild": false,
           "win": {
