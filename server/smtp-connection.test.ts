@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildSmtpConnectionAttempts, getSmtpErrorHint } from "./services/email-sender";
+import {
+  buildSmtpConnectionAttempts,
+  getSmtpErrorHint,
+  getSmtpFailureSummary,
+  normalizeSmtpConnectionConfig,
+} from "./services/email-sender";
 
 describe("smtp connection helpers", () => {
   it("tries 587 STARTTLS after 465 SSL", () => {
@@ -53,6 +58,44 @@ describe("smtp connection helpers", () => {
       { port: 587, secure: false, proxy: null },
       { port: 465, secure: true, proxy: null },
     ]);
+  });
+
+  it("normalizes common port and encryption mismatches", () => {
+    expect(normalizeSmtpConnectionConfig({
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 465,
+      smtpSecure: false,
+      smtpUser: "sender@gmail.com",
+      smtpPass: "secret",
+    })).toMatchObject({
+      smtpPort: 465,
+      smtpSecure: true,
+    });
+
+    expect(normalizeSmtpConnectionConfig({
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 587,
+      smtpSecure: true,
+      smtpUser: "sender@gmail.com",
+      smtpPass: "secret",
+    })).toMatchObject({
+      smtpPort: 587,
+      smtpSecure: false,
+    });
+  });
+
+  it("summarizes refused local proxy errors for users", () => {
+    const summary = getSmtpFailureSummary(
+      new Error("connect ECONNREFUSED 127.0.0.1:7891"),
+      [
+        { host: "smtp.gmail.com", port: 587, secure: false, proxyUrl: null, success: false, error: "Unexpected socket close" },
+        { host: "smtp.gmail.com", port: 465, secure: true, proxyUrl: "http://127.0.0.1:7891", success: false, error: "connect ECONNREFUSED 127.0.0.1:7891" },
+      ],
+    );
+
+    expect(summary.hint).toContain("当前网络或本机代理");
+    expect(summary.error).toContain("本机代理端口不可用");
+    expect(summary.error).not.toContain("127.0.0.1:7891");
   });
 
   it("explains TLS handshake failures", () => {

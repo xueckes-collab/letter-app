@@ -28,6 +28,7 @@ export interface SendResult {
     success: boolean;
     messageId?: string;
     error?: string;
+    hint?: string;
     provider: string;
     effectiveConfig?: Pick<SmtpConnectionConfig, "smtpHost" | "smtpPort" | "smtpSecure" | "smtpProxyUrl">;
     attempts?: SmtpAttemptSummary[];
@@ -78,13 +79,31 @@ function wait(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeSmtpConfig(config: SmtpConnectionConfig): SmtpConnectionConfig {
-    const isGmail =
-            /(^|\.)gmail\.com$/i.test(config.smtpHost) ||
-            /@gmail\.com$/i.test(config.smtpUser);
+export function normalizeSmtpConnectionConfig(config: SmtpConnectionConfig): SmtpConnectionConfig {
+    const smtpPort = Number(config.smtpPort) || 587;
+    let smtpSecure = config.smtpSecure;
+
+    if (smtpPort === 465) {
+            smtpSecure = true;
+    } else if (smtpPort === 587 || smtpPort === 25) {
+            smtpSecure = false;
+    }
+
     return {
             ...config,
-            smtpPass: isGmail ? config.smtpPass.replace(/\s+/g, "") : config.smtpPass,
+            smtpPort,
+            smtpSecure,
+    };
+}
+
+function normalizeSmtpConfig(config: SmtpConnectionConfig): SmtpConnectionConfig {
+    const normalizedConfig = normalizeSmtpConnectionConfig(config);
+    const isGmail =
+            /(^|\.)gmail\.com$/i.test(normalizedConfig.smtpHost) ||
+            /@gmail\.com$/i.test(normalizedConfig.smtpUser);
+    return {
+            ...normalizedConfig,
+            smtpPass: isGmail ? normalizedConfig.smtpPass.replace(/\s+/g, "") : normalizedConfig.smtpPass,
     };
 }
 
@@ -127,7 +146,8 @@ function getProxyCandidates(config: SmtpConnectionConfig): Array<string | null> 
 }
 
 export function buildSmtpConnectionAttempts(config: SmtpConnectionConfig): SmtpConnectionConfig[] {
-    const portAttempts: SmtpConnectionConfig[] = [config];
+    const normalized = normalizeSmtpConnectionConfig(config);
+    const portAttempts: SmtpConnectionConfig[] = [normalized];
     const add = (candidate: SmtpConnectionConfig) => {
             if (!portAttempts.some(item =>
                     item.smtpHost === candidate.smtpHost &&
@@ -138,14 +158,14 @@ export function buildSmtpConnectionAttempts(config: SmtpConnectionConfig): SmtpC
             }
     };
 
-    if (config.smtpPort === 465 && config.smtpSecure) {
-            add({ ...config, smtpPort: 587, smtpSecure: false });
-    } else if (config.smtpPort === 587 && !config.smtpSecure) {
-            add({ ...config, smtpPort: 465, smtpSecure: true });
+    if (normalized.smtpPort === 465 && normalized.smtpSecure) {
+            add({ ...normalized, smtpPort: 587, smtpSecure: false });
+    } else if (normalized.smtpPort === 587 && !normalized.smtpSecure) {
+            add({ ...normalized, smtpPort: 465, smtpSecure: true });
     }
 
     const attempts: SmtpConnectionConfig[] = [];
-    for (const proxyUrl of getProxyCandidates(config)) {
+    for (const proxyUrl of getProxyCandidates(normalized)) {
             for (const attempt of portAttempts) {
                     attempts.push({ ...attempt, smtpProxyUrl: proxyUrl });
             }
@@ -154,11 +174,68 @@ export function buildSmtpConnectionAttempts(config: SmtpConnectionConfig): SmtpC
     return attempts;
 }
 
+function isAuthErrorMessage(message: string) {
+    return /auth|authentication|credentials|password|535|5\.7\.8|Username and Password not accepted/i.test(message);
+}
+
+function isConnectionErrorMessage(message: string) {
+    return /ECONNREFUSED|ETIMEDOUT|ECONNECTION|Unexpected socket close|socket disconnected|secure TLS|timeout|network|connect/i.test(message);
+}
+
+function formatRawSmtpError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error || "SMTP failed");
+    if (/ECONNREFUSED\s+127\.0\.0\.1:\d+/i.test(message)) {
+            return "本机代理端口拒绝连接";
+    }
+    if (/Unexpected socket close|socket disconnected/i.test(message)) {
+            return "连接被远端网络关闭";
+    }
+    return message;
+}
+
+export function getSmtpFailureSummary(
+    error: unknown,
+    attempts: SmtpAttemptSummary[] = [],
+): { hint: string; error: string } {
+    const messages = attempts.map(attempt => attempt.error || "").filter(Boolean);
+    const lastMessage = error instanceof Error ? error.message : String(error || "");
+
+    if (messages.some(isAuthErrorMessage) || isAuthErrorMessage(lastMessage)) {
+            return {
+                    hint: "认证失败：请确认填写的是应用密码/授权码，不是邮箱登录密码，并确认 SMTP 服务已开启。",
+                    error: formatRawSmtpError(error),
+            };
+    }
+
+    const proxyRefused = messages.some(message => /ECONNREFUSED\s+127\.0\.0\.1:\d+/i.test(message)) ||
+            /ECONNREFUSED\s+127\.0\.0\.1:\d+/i.test(lastMessage);
+    const allNetwork = attempts.length > 0 && attempts.every(attempt => isConnectionErrorMessage(attempt.error || ""));
+
+    if (proxyRefused && allNetwork) {
+            return {
+                    hint: "当前网络或本机代理无法连接 SMTP。软件已经尝试直连、465/SSL、587/STARTTLS 和常见本机代理端口；请切换网络或代理节点后再发送测试邮件。",
+                    error: "所有连接尝试均失败，最后一个本机代理端口不可用。",
+            };
+    }
+
+    if (allNetwork || isConnectionErrorMessage(lastMessage)) {
+            return {
+                    hint: "网络连接失败：请检查网络、代理、防火墙，或切换 465/SSL 与 587/STARTTLS 后再试。",
+                    error: formatRawSmtpError(error),
+            };
+    }
+
+    return {
+            hint: getSmtpErrorHint(error),
+            error: formatRawSmtpError(error),
+    };
+}
+
 export function getSmtpErrorHint(error: unknown): string {
     const err = error as { code?: string; command?: string; responseCode?: number; message?: string };
     const message = err?.message || "";
 
-    if (err?.code === "EAUTH" || err?.responseCode === 535 || /auth|authentication|credentials|password/i.test(message)) {
+    if (err?.code === "EAUTH" || err?.responseCode === 535 || isAuthErrorMessage(message)) {
             return "认证失败：请确认填写的是应用密码/授权码，并且 SMTP 服务已开启。";
     }
     if (/TLS|secure TLS|SSL|handshake|socket disconnected/i.test(message)) {
@@ -181,7 +258,7 @@ export async function sendViaSmtp(
     let lastError: unknown = null;
     const summaries: SmtpAttemptSummary[] = [];
     const attempts = accountConfig.smtpProxyUrl
-      ? [accountConfig]
+      ? [normalizeSmtpConnectionConfig(accountConfig)]
       : buildSmtpConnectionAttempts(accountConfig);
 
     for (const attempt of attempts) {
@@ -237,9 +314,11 @@ export async function sendViaSmtp(
     }
 
     const error = lastError as Error | null;
+    const failure = getSmtpFailureSummary(error, summaries);
     return {
             success: false,
-            error: `${getSmtpErrorHint(error)} ${error?.message || "SMTP send failed"}`,
+            error: failure.error,
+            hint: failure.hint,
             provider: "smtp",
             attempts: summaries,
     };
@@ -284,10 +363,11 @@ export async function verifySmtp(config: SmtpConnectionConfig): Promise<SmtpConn
           }
     }
 
+    const failure = getSmtpFailureSummary(lastError, attempts);
     return {
             success: false,
-            error: lastError instanceof Error ? lastError.message : "SMTP verify failed",
-            hint: getSmtpErrorHint(lastError),
+            error: failure.error,
+            hint: failure.hint,
             attempts,
     };
 }
@@ -324,7 +404,7 @@ export async function sendSmtpTestEmail(config: SmtpConnectionConfig & {
             return {
                     success: false,
                     error: sendResult.error,
-                    hint: sendResult.error || "SMTP 已连接，但测试邮件发送失败。",
+                    hint: sendResult.hint || "SMTP 已连接，但测试邮件发送失败。",
                     attempts: sendResult.attempts || [],
                     testTo,
             };

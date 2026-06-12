@@ -274,7 +274,7 @@ export default function EmailSettingsPage() {
         smtpUser: "",
         smtpPass: "",
         testToEmail: "",
-        smtpSecure: true,
+        smtpSecure: false,
         imapHost: "",
         imapPort: 993,
         imapSecure: true,
@@ -301,10 +301,28 @@ export default function EmailSettingsPage() {
         return { changed, usedProxy: Boolean(effective.smtpProxyUrl) };
   };
 
+  const normalizeSmtpPortSecurity = (smtpPort: number, smtpSecure: boolean) => {
+        if (smtpPort === 465) return { smtpPort, smtpSecure: true };
+        if (smtpPort === 587 || smtpPort === 25) return { smtpPort, smtpSecure: false };
+        return { smtpPort, smtpSecure };
+  };
+
+  const cleanSmtpErrorDetail = (message?: string) => {
+        if (!message) return "";
+        if (/ECONNREFUSED\s+127\.0\.0\.1:\d+/i.test(message)) {
+                return "本机代理端口不可用";
+        }
+        if (/Unexpected socket close|socket disconnected/i.test(message)) {
+                return "连接被远端网络关闭";
+        }
+        return message;
+  };
+
   const getSmtpFailureMessage = (result: any, fallback: string) => {
         const hint = result?.hint || fallback;
-        const error = result?.error ? ` 原始错误：${result.error}` : "";
-        return `${hint}${error}`;
+        const detail = cleanSmtpErrorDetail(result?.error);
+        if (!detail || hint.includes(detail)) return hint;
+        return `${hint} 详情：${detail}`;
   };
 
   const applyProviderPreset = (provider: string, emailValue = form.email) => {
@@ -405,13 +423,14 @@ export default function EmailSettingsPage() {
                 toast.error("请填写完整的 SMTP 信息，密码必须是邮箱服务商生成的应用密码/授权码");
                 return;
         }
+        const normalized = normalizeSmtpPortSecurity(form.smtpPort, form.smtpSecure);
         try {
                 const result = await verifySmtp.mutateAsync({
                           smtpHost: form.smtpHost,
-                          smtpPort: form.smtpPort,
+                          smtpPort: normalized.smtpPort,
                           smtpUser: form.smtpUser,
                           smtpPass: form.smtpPass,
-                          smtpSecure: form.smtpSecure,
+                          smtpSecure: normalized.smtpSecure,
                 });
                 if (result.success) {
                           const { changed, usedProxy } = applyEffectiveSmtpConfig(result);
@@ -434,15 +453,16 @@ export default function EmailSettingsPage() {
                 toast.error("请先填写邮箱、SMTP 配置和应用密码/授权码");
                 return;
         }
+        const normalized = normalizeSmtpPortSecurity(form.smtpPort, form.smtpSecure);
         try {
                 const result = await sendTestEmail.mutateAsync({
                           email: form.email,
                           label: form.label || PROVIDER_INFO[selectedProvider]?.name || "Letter App",
                           smtpHost: form.smtpHost,
-                          smtpPort: form.smtpPort,
+                          smtpPort: normalized.smtpPort,
                           smtpUser: form.smtpUser,
                           smtpPass: form.smtpPass,
-                          smtpSecure: form.smtpSecure,
+                          smtpSecure: normalized.smtpSecure,
                           testTo: form.testToEmail || undefined,
                 });
                 if (result.success) {
@@ -472,16 +492,17 @@ export default function EmailSettingsPage() {
                 toast.error("请先发送测试邮件，确认该 SMTP 邮箱可以正常发信");
                 return;
         }
+        const normalized = normalizeSmtpPortSecurity(form.smtpPort, form.smtpSecure);
         try {
                 await createAccount.mutateAsync({
                           provider: selectedProvider === "custom" ? "smtp" : selectedProvider,
                           label: form.label || PROVIDER_INFO[selectedProvider]?.name || selectedProvider,
                           email: form.email,
                           smtpHost: form.smtpHost || undefined,
-                          smtpPort: form.smtpPort || undefined,
+                          smtpPort: normalized.smtpPort || undefined,
                           smtpUser: form.smtpUser || undefined,
                           smtpPass: form.smtpPass || undefined,
-                          smtpSecure: form.smtpSecure,
+                          smtpSecure: normalized.smtpSecure,
                           imapHost: form.imapHost || undefined,
                           imapPort: form.imapPort || undefined,
                           imapSecure: form.imapSecure,
@@ -530,7 +551,7 @@ export default function EmailSettingsPage() {
                 smtpUser: "",
                 smtpPass: "",
                 testToEmail: "",
-                smtpSecure: true,
+                smtpSecure: false,
                 imapHost: "",
                 imapPort: 993,
                 imapSecure: true,
@@ -949,7 +970,13 @@ export default function EmailSettingsPage() {
                                                                                                       <Input
                                                                                                                                 type="number"
                                                                                                                                 value={form.smtpPort}
-                                                                                                                                onChange={e => { setSmtpTestPassed(false); setForm(prev => ({ ...prev, smtpPort: parseInt(e.target.value) || 587 })); }}
+                                                                                                                                onChange={e => {
+                                                                                                                                  setSmtpTestPassed(false);
+                                                                                                                                  setForm(prev => {
+                                                                                                                                    const smtpPort = parseInt(e.target.value) || 587;
+                                                                                                                                    return { ...prev, ...normalizeSmtpPortSecurity(smtpPort, prev.smtpSecure) };
+                                                                                                                                  });
+                                                                                                                                }}
                                                                                                                                 disabled={selectedProvider !== "custom"}
                                                                                                                               />
                                                                                   </div>
@@ -1009,7 +1036,14 @@ export default function EmailSettingsPage() {
                                                             <div className="flex items-center gap-2">
                                                                                 <Switch
                                                                                                         checked={form.smtpSecure}
-                                                                                                        onCheckedChange={v => { setSmtpTestPassed(false); setForm(prev => ({ ...prev, smtpSecure: v })); }}
+                                                                                                        onCheckedChange={v => {
+                                                                                                          setSmtpTestPassed(false);
+                                                                                                          setForm(prev => ({
+                                                                                                            ...prev,
+                                                                                                            smtpSecure: v,
+                                                                                                            smtpPort: v && prev.smtpPort === 587 ? 465 : (!v && prev.smtpPort === 465 ? 587 : prev.smtpPort),
+                                                                                                          }));
+                                                                                                        }}
                                                                                                         disabled={selectedProvider !== "custom"}
                                                                                                       />
                                                                                 <Label className="text-xs">使用 TLS/SSL 加密</Label>
