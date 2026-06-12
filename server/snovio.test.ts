@@ -1,17 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
 
 describe("Snov.io API Credentials", () => {
-  it("should have SNOVIO_CLIENT_ID configured", () => {
+  it("reads a configured SNOVIO_CLIENT_ID", () => {
+    vi.stubEnv("SNOVIO_CLIENT_ID", "test-client-id");
+
     expect(process.env.SNOVIO_CLIENT_ID).toBeTruthy();
   });
 
-  it("should have SNOVIO_CLIENT_SECRET configured", () => {
+  it("reads a configured SNOVIO_CLIENT_SECRET", () => {
+    vi.stubEnv("SNOVIO_CLIENT_SECRET", "test-client-secret");
+
     expect(process.env.SNOVIO_CLIENT_SECRET).toBeTruthy();
   });
 
-  it("should validate credentials against Snov.io API", async () => {
+  it("validates credentials against Snov.io with a mocked token response", async () => {
+    vi.stubEnv("SNOVIO_CLIENT_ID", "test-client-id");
+    vi.stubEnv("SNOVIO_CLIENT_SECRET", "test-client-secret");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "mock-token", expires_in: 3600 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
     const { validateSnovioCredentials } = await import("./services/snovio");
     const result = await validateSnovioCredentials();
+
     expect(result.valid).toBe(true);
-  }, 15000);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.snov.io/v1/oauth/access_token", expect.objectContaining({
+      method: "POST",
+    }));
+  });
 });

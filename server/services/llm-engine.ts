@@ -74,6 +74,159 @@ export interface ReplyAnalysisResult {
   toneSummary: string;
 }
 
+export type EmailQualityReview = {
+  passed: boolean;
+  blockers: string[];
+  warnings: string[];
+};
+
+export const FORBIDDEN_COLD_EMAIL_PHRASES = [
+  "dear sir",
+  "dear madam",
+  "dear sir/madam",
+  "to whom it may concern",
+  "i hope this email finds you well",
+  "we are a leading",
+  "we are professional",
+  "we are manufacturer",
+  "we are a manufacturer",
+  "we sincerely hope",
+  "long-term cooperation",
+  "mutually beneficial",
+  "win-win",
+  "esteemed company",
+  "high quality and competitive price",
+  "best quality",
+  "competitive price",
+  "one-stop solution",
+  "looking forward to your reply",
+  "looking forward to hearing from you",
+  "please feel free to contact",
+  "if you are interested",
+];
+
+const EMAIL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    subject: { type: "string" },
+    body: { type: "string" },
+    strategyNotes: { type: "string" },
+  },
+  required: ["subject", "body", "strategyNotes"],
+  additionalProperties: false,
+} as const;
+
+const COLD_EMAIL_QUALITY_CONTRACT = `
+## 绝对质量闸门：不合格就重写
+
+这不是公司简介，也不是产品宣传单。买家只关心：你为什么现在找我、你是否真的了解我、下一步是否足够轻。
+
+硬性失败项：
+- 第一句不能介绍自己或公司，必须先说一个客户相关的具体观察。
+- 禁止 Dear Sir/Madam、I hope this email finds you well、we are a leading manufacturer、competitive price、one-stop solution、win-win、long-term cooperation、looking forward to your reply 等模板句。
+- 不要堆公司资质。资质只能作为一句短证据，且必须服务于当前客户的具体问题。
+- 不要写泛泛的 "your company / your business / your products" 开头，除非后面跟着一个具体网页、品类、渠道、市场或业务动作。
+- CTA 必须是低摩擦问题，让对方可以用 yes/no 或一个短句回复。不要让对方"安排会议/建立合作/查看完整目录"作为第一步。
+- 如果客户和发送方匹配度弱，要诚实转向轻问法，不要硬编关联。
+
+优秀邮件形态：
+1. Hook：客户具体细节，1句。
+2. Relevance：为什么这件事和我们能帮的一点相关，1句。
+3. Proof：一个数字、认证、交期、案例或能力证据，最多1句。
+4. CTA：一个低门槛问题，1句。
+
+语言要求：
+- 英文像真人销售写给同行，不像中文翻译。
+- 80-120词优先，最多150词。
+- 每段1-2句，手机上一屏能看完。
+- 主语尽量从 buyer / their situation 出发，不要连续自夸 "we/our"。
+`;
+
+function countWords(value: string) {
+  return (value.match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?/g) || []).length;
+}
+
+function compact(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function getFirstSubstantiveLine(body: string) {
+  const lines = body
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const first = lines[0] || "";
+  if (/^hi\b|^hello\b|^hey\b/i.test(first.replace(/[,!.]+$/, ""))) {
+    return lines[1] || first;
+  }
+  return first;
+}
+
+function hasLowFrictionQuestion(body: string) {
+  const tail = body
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join(" ");
+  return /\?/.test(tail) &&
+    /(want me to|should i|would it help|worth|open to|can i|may i|does it make sense|useful|send|share|compare|sample|quote)/i.test(tail);
+}
+
+export function reviewGeneratedEmailDraft(email: EmailResult, type: "warm" | "followup" | "reply" = "warm"): EmailQualityReview {
+  const subject = email.subject || "";
+  const body = email.body || "";
+  const text = compact(`${subject}\n${body}`);
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const bodyWords = countWords(body);
+  const nonEmptyLines = body.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const firstContentLine = getFirstSubstantiveLine(body);
+
+  const forbidden = FORBIDDEN_COLD_EMAIL_PHRASES.filter(phrase => text.includes(phrase));
+  if (forbidden.length) {
+    blockers.push(`包含模板化禁用表达：${forbidden.slice(0, 3).join(", ")}`);
+  }
+
+  if (!subject.trim()) {
+    blockers.push("缺少主题行");
+  } else {
+    const subjectWords = countWords(subject);
+    if (subjectWords > 7) blockers.push(`主题行超过7词：${subjectWords}词`);
+    if (subject.includes("!")) blockers.push("主题行不能使用感叹号");
+  }
+
+  if (!body.trim()) {
+    blockers.push("缺少邮件正文");
+  } else {
+    if (bodyWords > 150) blockers.push(`正文超过150词：${bodyWords}词`);
+    if (type !== "reply" && bodyWords < 45) warnings.push(`正文偏短：${bodyWords}词，可能缺少足够上下文`);
+    if (nonEmptyLines.length > 10) blockers.push("正文段落过多，手机一屏读不完");
+
+    if (/^(we|our company|i am|i'm|my name is|this is)\b/i.test(firstContentLine)) {
+      blockers.push("第一句在介绍自己，而不是先给客户相关观察");
+    }
+    if (/your (company|business|products?|website)\b/i.test(firstContentLine) && !/\b(on|noticed|saw|page|line|range|store|launch|certification|catalog|collection|market)\b/i.test(firstContentLine)) {
+      blockers.push("开头过泛，没有足够具体的客户细节");
+    }
+    if (type !== "reply" && !hasLowFrictionQuestion(body)) {
+      blockers.push("缺少低门槛 yes/no 式 CTA 问题");
+    }
+
+    const senderMentions = (body.match(/\b(we|our|us|i)\b/gi) || []).length;
+    const buyerMentions = (body.match(/\b(you|your|they|their)\b/gi) || []).length;
+    if (type !== "reply" && senderMentions > buyerMentions + 4) {
+      warnings.push("正文偏卖方视角，可能仍然像公司宣传");
+    }
+  }
+
+  return {
+    passed: blockers.length === 0,
+    blockers,
+    warnings,
+  };
+}
+
 // ============================================================
 // WEBSITE ANALYSIS（网站深度分析）
 // ============================================================
@@ -424,6 +577,13 @@ export async function generateEmail(params: {
 重要：在邮件结尾的签名处，使用发送方背景信息中的"Sender Name"作为署名。绝对不要使用"[Your Name]"或其他占位符。如果Sender Name为空，则不添加个人署名，只保留公司信息。
 ${senderContext}`;
 
+  systemPrompt += `
+
+${COLD_EMAIL_QUALITY_CONTRACT}
+
+发送方背景信息（必须以此为准，不能编造）：
+${senderContext}`;
+
   if (type === 'warm') {
     systemPrompt += `
 
@@ -508,23 +668,76 @@ ${JSON.stringify(replyAnalysis, null, 2)}
       json_schema: {
         name: "email_generation",
         strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            subject: { type: "string" },
-            body: { type: "string" },
-            strategyNotes: { type: "string" },
-          },
-          required: ["subject", "body", "strategyNotes"],
-          additionalProperties: false,
-        },
+        schema: EMAIL_JSON_SCHEMA,
       },
     },
-    temperature: 0.7,
+    temperature: 0.55,
   });
 
   const content = result.choices[0]?.message?.content;
-  return JSON.parse(typeof content === 'string' ? content : '{}') as EmailResult;
+  let emailResult = JSON.parse(typeof content === 'string' ? content : '{}') as EmailResult;
+  let quality = reviewGeneratedEmailDraft(emailResult, type);
+
+  if (!quality.passed) {
+    const rewriteResult = await invokeGPT({
+      messages: [
+        {
+          role: "system",
+          content: `${systemPrompt}
+
+## 重写任务
+上一版邮件没有通过质量闸门。你必须只输出一版更强的英文邮件，不要解释，不要保留失败表达。
+
+修复优先级：
+1. 先用客户具体细节开场，不要先介绍我方。
+2. 删掉所有模板话、公司宣传味、翻译腔。
+3. 保留一个最相关卖点和一个短证据。
+4. 结尾必须是低门槛问题，让对方能一词回复。
+5. 主题7词以内，正文80-120词优先。`,
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            emailType: type,
+            contactName: contactName || "there",
+            websiteAnalysis,
+            icpMatch,
+            uspMatch,
+            previousEmails,
+            replyContent,
+            replyAnalysis,
+            followupStrategy,
+            failedDraft: emailResult,
+            qualityBlockers: quality.blockers,
+            qualityWarnings: quality.warnings,
+          }),
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "email_generation_rewrite",
+          strict: true,
+          schema: EMAIL_JSON_SCHEMA,
+        },
+      },
+      temperature: 0.35,
+    });
+
+    const rewriteContent = rewriteResult.choices[0]?.message?.content;
+    emailResult = JSON.parse(typeof rewriteContent === "string" ? rewriteContent : "{}") as EmailResult;
+    quality = reviewGeneratedEmailDraft(emailResult, type);
+  }
+
+  if (!quality.passed || quality.warnings.length) {
+    emailResult.strategyNotes = [
+      emailResult.strategyNotes,
+      quality.passed ? null : `质量闸门仍需人工复核：${quality.blockers.join("；")}`,
+      quality.warnings.length ? `质量提醒：${quality.warnings.join("；")}` : null,
+    ].filter(Boolean).join("\n");
+  }
+
+  return emailResult;
 }
 
 // ============================================================

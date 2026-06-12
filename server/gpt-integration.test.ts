@@ -29,11 +29,23 @@ describe("GPT Integration", () => {
     expect(engine.analyzeReply.length).toBe(2); // 2 params
   });
 
-  it("validateOpenAIKey returns valid when key is set", async () => {
+  it("validateOpenAIKey returns valid when the models check succeeds", async () => {
+    vi.resetModules();
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
     const { validateOpenAIKey } = await import("./services/gpt");
     const result = await validateOpenAIKey();
+
     expect(result.valid).toBe(true);
-  }, 15000);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.openai.com/v1/models", {
+      headers: { "Authorization": "Bearer test-key" },
+    });
+
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
 
   it("follow-up strategies module provides strategies for rounds 1-9", async () => {
     const { getStrategyForRound } = await import("./services/follow-up-strategies");
