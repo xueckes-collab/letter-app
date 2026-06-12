@@ -8,7 +8,10 @@ import { getDb, getDefaultEmailAccount, getSenderProfile, getAutomationSettings 
 import { emailAccounts, emailSequences, leadStates, leads, notifications } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { getSnovioToken } from "./snovio";
+import { SMTP_PRESETS } from "./email-account-setup";
 import axios from "axios";
+
+export { SMTP_PRESETS } from "./email-account-setup";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface SendEmailParams {
@@ -26,7 +29,35 @@ export interface SendResult {
     messageId?: string;
     error?: string;
     provider: string;
+    effectiveConfig?: Pick<SmtpConnectionConfig, "smtpHost" | "smtpPort" | "smtpSecure" | "smtpProxyUrl">;
+    attempts?: SmtpAttemptSummary[];
 }
+
+export type SmtpConnectionConfig = {
+    smtpHost: string;
+    smtpPort: number;
+    smtpUser: string;
+    smtpPass: string;
+    smtpSecure: boolean;
+    smtpProxyUrl?: string | null;
+};
+
+export type SmtpAttemptSummary = {
+    host: string;
+    port: number;
+    secure: boolean;
+    proxyUrl?: string | null;
+    success: boolean;
+    error?: string;
+};
+
+export type SmtpConnectionCheckResult = {
+    success: boolean;
+    error?: string;
+    hint?: string;
+    effectiveConfig?: Pick<SmtpConnectionConfig, "smtpHost" | "smtpPort" | "smtpSecure" | "smtpProxyUrl">;
+    attempts: SmtpAttemptSummary[];
+};
 
 function formatEmailHtml(body: string, signature?: string | null, fontSize = 14, fontFamily = 'Arial, sans-serif', logoUrl?: string | null) {
     const escapeHtml = (value: string) => value
@@ -47,32 +78,115 @@ function wait(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizeSmtpConfig(config: SmtpConnectionConfig): SmtpConnectionConfig {
+    const isGmail =
+            /(^|\.)gmail\.com$/i.test(config.smtpHost) ||
+            /@gmail\.com$/i.test(config.smtpUser);
+    return {
+            ...config,
+            smtpPass: isGmail ? config.smtpPass.replace(/\s+/g, "") : config.smtpPass,
+    };
+}
+
+function createSmtpTransport(config: SmtpConnectionConfig): Transporter {
+    const normalized = normalizeSmtpConfig(config);
+    return nodemailer.createTransport({
+            host: normalized.smtpHost,
+            port: normalized.smtpPort,
+            secure: normalized.smtpSecure,
+            proxy: normalized.smtpProxyUrl || undefined,
+            auth: {
+                      user: normalized.smtpUser,
+                      pass: normalized.smtpPass,
+            },
+            requireTLS: !normalized.smtpSecure,
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 30000,
+            tls: {
+                      rejectUnauthorized: false,
+                      servername: normalized.smtpHost,
+            },
+    } as any);
+}
+
+function getProxyCandidates(config: SmtpConnectionConfig): Array<string | null> {
+    const candidates = [
+            null,
+            config.smtpProxyUrl || null,
+            process.env.ALL_PROXY || null,
+            process.env.HTTPS_PROXY || null,
+            process.env.HTTP_PROXY || null,
+            "http://127.0.0.1:2340",
+            "http://127.0.0.1:7890",
+            "http://127.0.0.1:7891",
+    ];
+    return candidates.filter((candidate, index, list) =>
+            index === list.findIndex(item => item === candidate)
+    );
+}
+
+export function buildSmtpConnectionAttempts(config: SmtpConnectionConfig): SmtpConnectionConfig[] {
+    const portAttempts: SmtpConnectionConfig[] = [config];
+    const add = (candidate: SmtpConnectionConfig) => {
+            if (!portAttempts.some(item =>
+                    item.smtpHost === candidate.smtpHost &&
+                    item.smtpPort === candidate.smtpPort &&
+                    item.smtpSecure === candidate.smtpSecure
+            )) {
+                    portAttempts.push(candidate);
+            }
+    };
+
+    if (config.smtpPort === 465 && config.smtpSecure) {
+            add({ ...config, smtpPort: 587, smtpSecure: false });
+    } else if (config.smtpPort === 587 && !config.smtpSecure) {
+            add({ ...config, smtpPort: 465, smtpSecure: true });
+    }
+
+    const attempts: SmtpConnectionConfig[] = [];
+    for (const proxyUrl of getProxyCandidates(config)) {
+            for (const attempt of portAttempts) {
+                    attempts.push({ ...attempt, smtpProxyUrl: proxyUrl });
+            }
+    }
+
+    return attempts;
+}
+
+export function getSmtpErrorHint(error: unknown): string {
+    const err = error as { code?: string; command?: string; responseCode?: number; message?: string };
+    const message = err?.message || "";
+
+    if (err?.code === "EAUTH" || err?.responseCode === 535 || /auth|authentication|credentials|password/i.test(message)) {
+            return "认证失败：请确认填写的是应用密码/授权码，并且 SMTP 服务已开启。";
+    }
+    if (/TLS|secure TLS|SSL|handshake|socket disconnected/i.test(message)) {
+            return "TLS 握手失败：当前网络或端口可能阻断了 SSL 连接，系统会尝试 587/STARTTLS 和本机代理；如果仍失败，请检查代理或防火墙。";
+    }
+    if (err?.code === "ETIMEDOUT" || err?.code === "ECONNECTION" || /timeout|network|connect/i.test(message)) {
+            return "网络连接失败：请检查网络、代理、防火墙，或尝试切换 465/SSL 与 587/STARTTLS。";
+    }
+    return "SMTP 验证失败：请检查服务器、端口、加密方式、用户名和应用密码/授权码。";
+}
+
 // ─── SMTP Sender ──────────────────────────────────────────────────────────────
 export async function sendViaSmtp(
-    accountConfig: {
-          smtpHost: string;
-          smtpPort: number;
-          smtpUser: string;
-          smtpPass: string;
-          smtpSecure: boolean;
+    accountConfig: SmtpConnectionConfig & {
           email: string;
           label: string;
     },
     params: SendEmailParams
   ): Promise<SendResult> {
+    let lastError: unknown = null;
+    const summaries: SmtpAttemptSummary[] = [];
+    const attempts = accountConfig.smtpProxyUrl
+      ? [accountConfig]
+      : buildSmtpConnectionAttempts(accountConfig);
+
+    for (const attempt of attempts) {
     try {
-          const transporter: Transporter = nodemailer.createTransport({
-                  host: accountConfig.smtpHost,
-                  port: accountConfig.smtpPort,
-                  secure: accountConfig.smtpSecure,
-                  auth: {
-                            user: accountConfig.smtpUser,
-                            pass: accountConfig.smtpPass,
-                  },
-                  tls: {
-                            rejectUnauthorized: false, // allow self-signed certs
-                  },
-          });
+          const transporter = createSmtpTransport(attempt);
 
       const mailOptions: any = {
               from: `"${accountConfig.label}" <${accountConfig.email}>`,
@@ -92,44 +206,138 @@ export async function sendViaSmtp(
               success: true,
               messageId: info.messageId,
               provider: "smtp",
+              effectiveConfig: {
+                      smtpHost: attempt.smtpHost,
+                      smtpPort: attempt.smtpPort,
+                      smtpSecure: attempt.smtpSecure,
+                      smtpProxyUrl: attempt.smtpProxyUrl || null,
+              },
+              attempts: [
+                      ...summaries,
+                      {
+                              host: attempt.smtpHost,
+                              port: attempt.smtpPort,
+                              secure: attempt.smtpSecure,
+                              proxyUrl: attempt.smtpProxyUrl || null,
+                              success: true,
+                      },
+              ],
       };
     } catch (error: any) {
-          return {
+          lastError = error;
+          summaries.push({
+                  host: attempt.smtpHost,
+                  port: attempt.smtpPort,
+                  secure: attempt.smtpSecure,
+                  proxyUrl: attempt.smtpProxyUrl || null,
                   success: false,
                   error: error.message || "SMTP send failed",
-                  provider: "smtp",
-          };
+          });
     }
-}
+    }
+
+    const error = lastError as Error | null;
+    return {
+            success: false,
+            error: `${getSmtpErrorHint(error)} ${error?.message || "SMTP send failed"}`,
+            provider: "smtp",
+            attempts: summaries,
+    };
+    }
 
 // ─── Verify SMTP Connection ───────────────────────────────────────────────────
-export async function verifySmtp(config: {
-    smtpHost: string;
-    smtpPort: number;
-    smtpUser: string;
-    smtpPass: string;
-    smtpSecure: boolean;
-}): Promise<{ success: boolean; error?: string }> {
-    try {
-          const transporter = nodemailer.createTransport({
-                  host: config.smtpHost,
-                  port: config.smtpPort,
-                  secure: config.smtpSecure,
-                  auth: {
-                            user: config.smtpUser,
-                            pass: config.smtpPass,
-                  },
-                  tls: { rejectUnauthorized: false },
-          });
+export async function verifySmtp(config: SmtpConnectionConfig): Promise<SmtpConnectionCheckResult> {
+    const attempts: SmtpAttemptSummary[] = [];
+    let lastError: unknown = null;
 
-      await transporter.verify();
-          return { success: true };
-    } catch (error: any) {
-          return { success: false, error: error.message };
+    for (const attempt of buildSmtpConnectionAttempts(config)) {
+          try {
+                const transporter = createSmtpTransport(attempt);
+                await transporter.verify();
+                attempts.push({
+                        host: attempt.smtpHost,
+                        port: attempt.smtpPort,
+                        secure: attempt.smtpSecure,
+                        proxyUrl: attempt.smtpProxyUrl || null,
+                        success: true,
+                });
+                return {
+                        success: true,
+                        effectiveConfig: {
+                                smtpHost: attempt.smtpHost,
+                                smtpPort: attempt.smtpPort,
+                                smtpSecure: attempt.smtpSecure,
+                                smtpProxyUrl: attempt.smtpProxyUrl || null,
+                        },
+                        attempts,
+                };
+          } catch (error: any) {
+                lastError = error;
+                attempts.push({
+                        host: attempt.smtpHost,
+                        port: attempt.smtpPort,
+                        secure: attempt.smtpSecure,
+                        proxyUrl: attempt.smtpProxyUrl || null,
+                        success: false,
+                        error: error.message || "SMTP verify failed",
+                });
+          }
     }
+
+    return {
+            success: false,
+            error: lastError instanceof Error ? lastError.message : "SMTP verify failed",
+            hint: getSmtpErrorHint(lastError),
+            attempts,
+    };
 }
 
 export const verifySMTP = verifySmtp;
+
+export async function sendSmtpTestEmail(config: SmtpConnectionConfig & {
+    email: string;
+    label?: string;
+    testTo?: string;
+}): Promise<SmtpConnectionCheckResult & { messageId?: string; testTo?: string }> {
+    const testTo = config.testTo || config.email;
+    const now = new Date();
+    const sendResult = await sendViaSmtp(
+            {
+                    smtpHost: config.smtpHost,
+                    smtpPort: config.smtpPort,
+                    smtpSecure: config.smtpSecure,
+                    smtpProxyUrl: config.smtpProxyUrl || null,
+                    smtpUser: config.smtpUser,
+                    smtpPass: config.smtpPass,
+                    email: config.email,
+                    label: config.label || "Letter App",
+            },
+            {
+                    to: testTo,
+                    subject: `Letter App SMTP 测试邮件 - ${now.toLocaleString("zh-CN")}`,
+                    html: `<p>这是一封来自 Letter App 的 SMTP 测试邮件。</p><p>如果你收到它，说明该邮箱可以正常发信。</p><p>发送时间：${now.toLocaleString("zh-CN")}</p>`,
+                    text: `这是一封来自 Letter App 的 SMTP 测试邮件。\n如果你收到它，说明该邮箱可以正常发信。\n发送时间：${now.toLocaleString("zh-CN")}`,
+            }
+    );
+
+    if (!sendResult.success) {
+            return {
+                    success: false,
+                    error: sendResult.error,
+                    hint: sendResult.error || "SMTP 已连接，但测试邮件发送失败。",
+                    attempts: sendResult.attempts || [],
+                    testTo,
+            };
+    }
+
+    return {
+            success: true,
+            effectiveConfig: sendResult.effectiveConfig,
+            attempts: sendResult.attempts || [],
+            messageId: sendResult.messageId,
+            testTo,
+    };
+}
 
 // ─── Snov.io Campaign Sender ──────────────────────────────────────────────────
 // Snov.io doesn't have a direct "send email" API.
@@ -281,7 +489,7 @@ export async function sendEmail(
           (senderProfile as any)?.signatureLogoUrl || null
         );
 
-  if (account.provider === "smtp" && account.smtpHost && account.smtpPort && account.smtpUser && account.smtpPass) {
+  if (account.smtpHost && account.smtpPort && account.smtpUser && account.smtpPass) {
         result = await sendViaSmtp(
           {
                     smtpHost: account.smtpHost,
@@ -452,17 +660,3 @@ export async function checkRepliesForUser(userId: number): Promise<{
   return { newReplies: [] };
 }
 
-// ─── Common SMTP Presets ──────────────────────────────────────────────────────
-export const SMTP_PRESETS: Record<string, { host: string; port: number; secure: boolean }> = {
-    gmail: { host: "smtp.gmail.com", port: 465, secure: true },
-    outlook: { host: "smtp.office365.com", port: 587, secure: false },
-    yahoo: { host: "smtp.mail.yahoo.com", port: 465, secure: true },
-    "163": { host: "smtp.163.com", port: 465, secure: true },
-    qq: { host: "smtp.qq.com", port: 465, secure: true },
-    zoho: { host: "smtp.zoho.com", port: 465, secure: true },
-    icloud: { host: "smtp.mail.me.com", port: 587, secure: false },
-    fastmail: { host: "smtp.fastmail.com", port: 465, secure: true },
-    sendgrid: { host: "smtp.sendgrid.net", port: 465, secure: true },
-    mailgun: { host: "smtp.mailgun.org", port: 465, secure: true },
-    snovio: { host: "smtp.snov.io", port: 587, secure: false },
-};

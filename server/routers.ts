@@ -34,7 +34,8 @@ import { getStrategyForRound } from "./services/follow-up-strategies";
 import { storagePut, storageDelete } from "./storage";
 import { nanoid } from "nanoid";
 import { validateSnovioCredentials, domainSearch } from "./services/snovio";
-import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services/email-sender";
+import { sendEmail, batchSendEmails, verifySmtp, sendSmtpTestEmail, SMTP_PRESETS } from "./services/email-sender";
+import { EMAIL_PROVIDER_SETUPS, IMAP_PRESETS, buildEmailAccountSetup } from "./services/email-account-setup";
 
 // Helper: build sender context string for LLM
 async function buildSenderContext(userId: number): Promise<string> {
@@ -604,10 +605,24 @@ export const appRouter = router({
 
     getPresets: publicProcedure.query(() => {
       return Object.entries(SMTP_PRESETS).map(([key, val]) => ({
-        key, label: key.charAt(0).toUpperCase() + key.slice(1),
+        key,
+        label: EMAIL_PROVIDER_SETUPS[key]?.label ?? key.charAt(0).toUpperCase() + key.slice(1),
         host: val.host, port: val.port, secure: val.secure,
+        defaultUser: val.defaultUser ?? null,
+        imapHost: IMAP_PRESETS[key]?.host ?? null,
+        imapPort: IMAP_PRESETS[key]?.port ?? null,
+        imapSecure: IMAP_PRESETS[key]?.secure ?? true,
       }));
     }),
+
+    detectSetup: protectedProcedure
+      .input(z.object({
+        email: z.string().email(),
+        provider: z.string().optional(),
+      }))
+      .mutation(({ input }) => {
+        return buildEmailAccountSetup(input);
+      }),
 
          create: protectedProcedure
       .input(z.object({
@@ -682,6 +697,21 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         return verifySmtp(input);
+      }),
+
+    sendTest: protectedProcedure
+      .input(z.object({
+        email: z.string().email(),
+        label: z.string().optional(),
+        smtpHost: z.string(),
+        smtpPort: z.number(),
+        smtpUser: z.string(),
+        smtpPass: z.string(),
+        smtpSecure: z.boolean(),
+        testTo: z.string().email().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return sendSmtpTestEmail(input);
       }),
 
     setDefault: protectedProcedure
