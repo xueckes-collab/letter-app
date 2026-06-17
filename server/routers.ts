@@ -301,7 +301,7 @@ export const appRouter = router({
         return getLeadWithRelations(input.leadId, ctx.user.id);
       }),
 
-         create:           protectedProcedure
+    create: protectedProcedure
       .input(z.object({
         email: z.string().email(),
         website: z.string().min(1),
@@ -330,6 +330,24 @@ export const appRouter = router({
 	          pipelineError,
 	        };
 	      }),
+
+    generateNow: protectedProcedure
+      .input(z.object({
+        leadId: z.number(),
+        forceRegenerate: z.boolean().optional().default(true),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const lead = await getLeadById(input.leadId, ctx.user.id);
+        if (!lead) throw new Error("Lead not found");
+
+        await updateLeadResearchStatus(input.leadId, ctx.user.id, "queued", null);
+        const { processResearchEmailJob } = await import("./worker");
+        return processResearchEmailJob({
+          userId: ctx.user.id,
+          leadId: input.leadId,
+          forceRegenerate: input.forceRegenerate,
+        });
+      }),
 
     bulkImport: protectedProcedure
       .input(z.object({
