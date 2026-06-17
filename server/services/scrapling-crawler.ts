@@ -11,7 +11,8 @@ const DEFAULT_MIN_TEXT_LENGTH = 40;
 const DEFAULT_CRAWL_DELAY_MS = 250;
 const HARD_MAX_PAGES = 12;
 
-export type ScraplingExtractionMethod = "get" | "fetch" | "stealthy-fetch";
+export type ScraplingExtractionMethod = "get" | "fetch" | "stealthy-fetch" | "http-fetch";
+type ScraplingCliMethod = Exclude<ScraplingExtractionMethod, "http-fetch">;
 export type WebsiteResearchPageType =
   | "homepage"
   | "about"
@@ -84,7 +85,7 @@ export interface DiscoveredWebsitePage {
 }
 
 interface ScraplingCliExecution {
-  method: ScraplingExtractionMethod;
+  method: ScraplingCliMethod;
   exitCode: number | null;
   timedOut: boolean;
   stdout: string;
@@ -234,7 +235,7 @@ export function buildHomepageCandidates(websiteUrl: string): string[] {
 }
 
 export function buildScraplingArgs(
-  method: ScraplingExtractionMethod,
+  method: ScraplingCliMethod,
   url: string,
   outputPath: string,
   options: CrawlWebsiteDeepOptions = {},
@@ -468,7 +469,7 @@ async function extractWithFallback(
   options: CrawlWebsiteDeepOptions,
 ): Promise<ScraplingExtraction> {
   const attempts: ScraplingAttemptSummary[] = [];
-  const methods: ScraplingExtractionMethod[] = ["get", "fetch", "stealthy-fetch"];
+  const methods: ScraplingCliMethod[] = ["get", "fetch", "stealthy-fetch"];
   let lastMethod: ScraplingExtractionMethod | "none" = "none";
   let lastError: WebsiteResearchError | undefined;
 
@@ -478,12 +479,24 @@ async function extractWithFallback(
     attempts.push(toAttemptSummary(execution));
 
     if (execution.error?.code === "SCRAPLING_UNAVAILABLE") {
+      const fallback = await runBuiltInHttpFetch(url, format, options);
+      attempts.push(fallback.attempt);
+      if (fallback.ok) {
+        return {
+          ok: true,
+          url,
+          method: "http-fetch",
+          content: fallback.content,
+          attempts,
+        };
+      }
+
       return {
         ok: false,
         url,
-        method,
+        method: "http-fetch",
         attempts,
-        error: { ...execution.error, attempts },
+        error: { ...fallback.error, attempts },
       };
     }
 
@@ -525,7 +538,7 @@ async function extractWithFallback(
 }
 
 async function runScraplingCli(
-  method: ScraplingExtractionMethod,
+  method: ScraplingCliMethod,
   url: string,
   format: "html" | "md",
   options: CrawlWebsiteDeepOptions,
@@ -576,6 +589,84 @@ async function runScraplingCli(
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function runBuiltInHttpFetch(
+  url: string,
+  format: "html" | "md",
+  options: CrawlWebsiteDeepOptions,
+): Promise<
+  | { ok: true; content: string; attempt: ScraplingAttemptSummary }
+  | { ok: false; error: WebsiteResearchError; attempt: ScraplingAttemptSummary }
+> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (compatible; LetterAppResearchBot/1.0; +https://letter-app-1fmm.onrender.com)",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+        ...(options.headers ?? {}),
+      },
+      redirect: "follow",
+    });
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = await response.text();
+    const content = format === "md" && contentType.includes("html") ? htmlToSimpleMarkdown(body, url) : body;
+
+    if (!response.ok) {
+      const error: WebsiteResearchError = {
+        code: "EXTRACTION_FAILED",
+        message: `Built-in HTTP fetch returned ${response.status}.`,
+        details: response.statusText,
+      };
+      return {
+        ok: false,
+        error,
+        attempt: {
+          method: "http-fetch",
+          exitCode: response.status,
+          timedOut: false,
+          message: error.message,
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      content,
+      attempt: {
+        method: "http-fetch",
+        exitCode: 0,
+        timedOut: false,
+        message: "Built-in HTTP fetch completed.",
+      },
+    };
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    const fetchError: WebsiteResearchError = {
+      code: timedOut ? "TIMEOUT" : "EXTRACTION_FAILED",
+      message: timedOut ? "Built-in HTTP fetch timed out." : "Built-in HTTP fetch failed.",
+      details: error instanceof Error ? error.message : String(error),
+    };
+    return {
+      ok: false,
+      error: fetchError,
+      attempt: {
+        method: "http-fetch",
+        exitCode: null,
+        timedOut,
+        message: fetchError.message,
+        stderr: fetchError.details,
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -842,6 +933,37 @@ function extractTextFromHtml(html: string): string {
   return $("body").text() || $.root().text();
 }
 
+function htmlToSimpleMarkdown(html: string, baseUrl: string): string {
+  const $ = cheerio.load(html);
+  $("script, style, noscript, iframe, svg").remove();
+
+  const lines: string[] = [];
+  $("h1, h2, h3, p, li, a[href]").each((_, element) => {
+    const tag = element.tagName?.toLowerCase();
+    const text = normalizeWhitespace($(element).text());
+    if (!text) return;
+
+    if (tag === "a") {
+      const href = $(element).attr("href");
+      if (!href) return;
+      try {
+        const absolute = new URL(href, baseUrl).toString();
+        lines.push(`[${text}](${absolute})`);
+      } catch {
+        lines.push(text);
+      }
+      return;
+    }
+
+    if (tag === "h1") lines.push(`# ${text}`);
+    else if (tag === "h2") lines.push(`## ${text}`);
+    else if (tag === "h3") lines.push(`### ${text}`);
+    else lines.push(text);
+  });
+
+  return lines.join("\n");
+}
+
 function stripMarkdownNoise(markdown: string): string {
   return markdown
     .replace(/!\[[^\]]*]\([^)]+\)/g, " ")
@@ -863,6 +985,7 @@ function calculateConfidence(
     get: 0.72,
     fetch: 0.82,
     "stealthy-fetch": 0.88,
+    "http-fetch": 0.68,
   };
   const lengthBonus = Math.min(0.08, text.length / 30_000);
   const titleBonus = title ? 0.03 : 0;
