@@ -20,6 +20,14 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      - key: LLM_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_RESPONSES_MODEL
@@ -64,6 +72,14 @@ services:
           type: redis
           name: letter-app-redis
           property: connectionString
+      - key: LLM_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_RESPONSES_MODEL

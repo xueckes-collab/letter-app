@@ -40,47 +40,8 @@ export interface GPTResponse {
  * Falls back to built-in LLM if OpenAI key is not configured.
  */
 export async function invokeGPT(options: GPTOptions): Promise<GPTResponse> {
-  const apiKey = ENV.openaiApiKey;
-
-  // If no OpenAI key, fall back to built-in LLM
-  if (!apiKey) {
-    const { invokeLLM } = await import("../_core/llm");
-    return invokeLLM(options as any) as Promise<GPTResponse>;
-  }
-
-  const body: Record<string, unknown> = {
-    model: options.model || "gpt-5.5",
-    messages: options.messages,
-    temperature: options.temperature ?? 0.7,
-  };
-
-  if (options.max_tokens) {
-    body.max_tokens = options.max_tokens;
-  }
-
-  if (options.response_format) {
-    body.response_format = options.response_format;
-  }
-
-  const response = await fetch(OPENAI_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("[GPT] API error:", response.status, errorText);
-    // Fall back to built-in LLM on error
-    console.warn("[GPT] Falling back to built-in LLM");
-    const { invokeLLM } = await import("../_core/llm");
-    return invokeLLM(options as any) as Promise<GPTResponse>;
-  }
-
-  return response.json() as Promise<GPTResponse>;
+  const { invokeLLM } = await import("../_core/llm");
+  return invokeLLM(options as any) as Promise<GPTResponse>;
 }
 
 /**

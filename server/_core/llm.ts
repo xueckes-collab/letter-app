@@ -32,6 +32,8 @@ export type Message = {
   tool_call_id?: string;
 };
 
+type LlmProvider = "openai" | "deepseek";
+
 export type Tool = {
   type: "function";
   function: {
@@ -209,11 +211,33 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () => "https://api.openai.com/v1/chat/completions";
+const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
-const assertApiKey = () => {
-  if (!ENV.openaiApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+const resolveProvider = (): LlmProvider => {
+  const configured = ENV.llmProvider.trim().toLowerCase();
+  if (configured === "deepseek") return "deepseek";
+  if (configured === "openai") return "openai";
+  return ENV.deepseekApiKey ? "deepseek" : "openai";
+};
+
+const resolveApiUrl = (provider: LlmProvider) => {
+  if (provider === "deepseek") {
+    return `${trimTrailingSlash(ENV.deepseekBaseUrl || "https://api.deepseek.com")}/chat/completions`;
+  }
+  return "https://api.openai.com/v1/chat/completions";
+};
+
+const resolveApiKey = (provider: LlmProvider) =>
+  provider === "deepseek" ? ENV.deepseekApiKey : ENV.openaiApiKey;
+
+const resolveModel = (provider: LlmProvider) =>
+  provider === "deepseek"
+    ? ENV.deepseekModel || "deepseek-chat"
+    : ENV.openaiChatModel || "gpt-5.5";
+
+const assertApiKey = (provider: LlmProvider) => {
+  if (!resolveApiKey(provider)) {
+    throw new Error(`${provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"} is not configured`);
   }
 };
 
@@ -263,7 +287,8 @@ const normalizeResponseFormat = ({
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const provider = resolveProvider();
+  assertApiKey(provider);
 
   const {
     messages,
@@ -276,9 +301,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  const normalizedMessages = messages.map(normalizeMessage);
   const payload: Record<string, unknown> = {
-    model: "gpt-5.5",
-    messages: messages.map(normalizeMessage),
+    model: resolveModel(provider),
+    messages: normalizedMessages,
   };
 
   if (tools && tools.length > 0) {
@@ -301,14 +327,25 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   });
 
   if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
+    if (provider === "deepseek" && normalizedResponseFormat.type === "json_schema") {
+      payload.response_format = { type: "json_object" };
+      payload.messages = [
+        {
+          role: "system",
+          content: `Return only a valid JSON object matching this JSON schema: ${JSON.stringify(normalizedResponseFormat.json_schema.schema)}`,
+        },
+        ...normalizedMessages,
+      ];
+    } else {
+      payload.response_format = normalizedResponseFormat;
+    }
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(resolveApiUrl(provider), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.openaiApiKey}`,
+      authorization: `Bearer ${resolveApiKey(provider)}`,
     },
     body: JSON.stringify(payload),
   });
