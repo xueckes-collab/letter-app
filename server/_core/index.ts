@@ -7,9 +7,11 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startScheduler } from "../services/scheduler";
-import { seedAdminUser } from "../db";
+import { ensureLeadResearchColumns, seedAdminUser } from "../db";
 
 async function startServer() {
+    await ensureLeadResearchColumns();
+
     const app = express();
     const server = createServer(app);
 

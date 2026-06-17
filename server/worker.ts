@@ -10,6 +10,7 @@ import { crawlWebsiteDeep } from "./services/scrapling-crawler";
 import { formatHandoffBrief, runColdEmailWorkflow } from "./services/research-workflow";
 import {
   createEmailSequence,
+  ensureLeadResearchColumns,
   getEmailsByLead,
   getLeadById,
   getSenderProfile,
@@ -215,11 +216,16 @@ export function createResearchWorker() {
   return worker;
 }
 
-const worker = createResearchWorker();
+let worker: Worker<ResearchEmailJobData> | undefined;
+
+async function startResearchWorker() {
+  await ensureLeadResearchColumns();
+  worker = createResearchWorker();
+}
 
 async function shutdown(signal: NodeJS.Signals) {
   console.log(`[ResearchWorker] ${signal} received, shutting down`);
-  await worker.close();
+  await worker?.close();
   process.exit(0);
 }
 
@@ -229,4 +235,9 @@ process.once("SIGINT", () => {
 
 process.once("SIGTERM", () => {
   void shutdown("SIGTERM");
+});
+
+startResearchWorker().catch((error) => {
+  console.error("[ResearchWorker] Failed to start:", error);
+  process.exit(1);
 });

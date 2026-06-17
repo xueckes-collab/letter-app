@@ -41,6 +41,26 @@ export async function getDb() {
   return _db;
 }
 
+export async function ensureLeadResearchColumns() {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Skipping lead research column check: database not available");
+    return;
+  }
+
+  await db.execute(sql`
+    ALTER TABLE "leads"
+      ADD COLUMN IF NOT EXISTS "researchStatus" varchar(64) DEFAULT 'not_started' NOT NULL,
+      ADD COLUMN IF NOT EXISTS "researchError" text,
+      ADD COLUMN IF NOT EXISTS "researchSources" json,
+      ADD COLUMN IF NOT EXISTS "handoffBrief" text,
+      ADD COLUMN IF NOT EXISTS "replyProbability" integer,
+      ADD COLUMN IF NOT EXISTS "qualityScore" integer,
+      ADD COLUMN IF NOT EXISTS "warningNotes" json,
+      ADD COLUMN IF NOT EXISTS "creditsConsumed" integer DEFAULT 0 NOT NULL
+  `);
+}
+
 // ============================================================
 // USER HELPERS
 // ============================================================
