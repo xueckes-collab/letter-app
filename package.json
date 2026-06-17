@@ -6,7 +6,7 @@
     "scripts": {
           "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
           "dev:worker": "NODE_ENV=development tsx watch server/worker.ts",
-          "worker": "NODE_ENV=production tsx server/worker.ts",
+          "worker": "START_RESEARCH_WORKER=true NODE_ENV=production tsx server/worker.ts",
           "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
           "start": "NODE_ENV=production node dist/index.js",
           "check": "tsc --noEmit",

@@ -43,9 +43,22 @@ async function startServer() {
           console.log(`Server running on http://localhost:${port}/`);
           // Start background scheduler for follow-up detection and reply checking
                       startScheduler();
+                      void startEmbeddedResearchWorker();
           // Set admin role for the designated admin email
                       seedAdminUser('xueckes@gmail.com').catch(console.error);
     });
+}
+
+async function startEmbeddedResearchWorker() {
+    if (process.env.DISABLE_EMBEDDED_RESEARCH_WORKER === "true") return;
+
+    try {
+          const { startResearchWorker } = await import("../worker");
+          await startResearchWorker();
+          console.log("[ResearchWorker] Embedded worker started");
+    } catch (error) {
+          console.error("[ResearchWorker] Embedded worker failed to start:", error);
+    }
 }
 
 startServer().catch(console.error);

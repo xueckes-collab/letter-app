@@ -216,28 +216,34 @@ export function createResearchWorker() {
   return worker;
 }
 
-let worker: Worker<ResearchEmailJobData> | undefined;
+let standaloneWorker: Worker<ResearchEmailJobData> | undefined;
 
-async function startResearchWorker() {
+export async function startResearchWorker() {
   await ensureLeadResearchColumns();
-  worker = createResearchWorker();
+  return createResearchWorker();
 }
 
 async function shutdown(signal: NodeJS.Signals) {
   console.log(`[ResearchWorker] ${signal} received, shutting down`);
-  await worker?.close();
+  await standaloneWorker?.close();
   process.exit(0);
 }
 
-process.once("SIGINT", () => {
-  void shutdown("SIGINT");
-});
+if (process.env.START_RESEARCH_WORKER === "true") {
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
 
-process.once("SIGTERM", () => {
-  void shutdown("SIGTERM");
-});
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
-startResearchWorker().catch((error) => {
-  console.error("[ResearchWorker] Failed to start:", error);
-  process.exit(1);
-});
+  startResearchWorker()
+    .then((worker) => {
+      standaloneWorker = worker;
+    })
+    .catch((error) => {
+      console.error("[ResearchWorker] Failed to start:", error);
+      process.exit(1);
+    });
+}
