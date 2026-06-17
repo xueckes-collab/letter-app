@@ -5,11 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { LeadIntelligenceDetail } from "@/components/LeadIntelligence";
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import {
-  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSuare,
+  Loader2, ArrowLeft, Mail, Send, RefreshCw, MessageSquare,
   ChevronDown, ChevronUp, Copy, Check, Globe, Building2,
   Brain, SkipForward, CheckCircle2, Clock, Pencil
 } from "lucide-react";
@@ -195,6 +196,8 @@ export default function LeadDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <LeadIntelligenceDetail lead={lead} timeline={timeline as any} />
 
       {/* Reply Input */}
       {currentState === 'waiting_response_status' && (

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { LeadIntelligenceBadges, LeadIntelligenceSummary } from "@/components/LeadIntelligence";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -435,6 +436,8 @@ export default function AutomationPage() {
         ))}
       </div>
 
+      <LeadIntelligenceSummary leads={leads || []} />
+
       {/* Action Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Step 1: Batch Generate */}
@@ -625,6 +628,7 @@ export default function AutomationPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{lead.companyName || lead.email}</p>
                       <p className="text-xs text-muted-foreground truncate">{lead.email}</p>
+                      <LeadIntelligenceBadges lead={lead} className="mt-1" />
                     </div>
                   </div>
                   <div className="text-right shrink-0">
@@ -664,6 +668,7 @@ export default function AutomationPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{lead.companyName || lead.email}</p>
                       <p className="text-xs text-muted-foreground truncate">{lead.email}</p>
+                      <LeadIntelligenceBadges lead={lead} className="mt-1" />
                     </div>
                   </div>
                   <Badge className="bg-violet-500/20 text-violet-400 border-violet-500/30 shrink-0">

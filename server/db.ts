@@ -222,6 +222,97 @@ export async function getLeadWithRelations(leadId: number, userId: number) {
   };
 }
 
+type LeadResearchArtifactsInput = {
+  researchSources?: unknown;
+  handoffBrief?: string | null;
+  replyProbability?: number | null;
+  qualityScore?: number | null;
+  warningNotes?: unknown;
+  creditsConsumed?: number;
+  researchStatus?: string;
+  researchError?: string | null;
+};
+
+export async function getLeadResearchArtifacts(leadId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select({
+      id: leads.id,
+      userId: leads.userId,
+      researchStatus: leads.researchStatus,
+      researchError: leads.researchError,
+      researchSources: leads.researchSources,
+      handoffBrief: leads.handoffBrief,
+      replyProbability: leads.replyProbability,
+      qualityScore: leads.qualityScore,
+      warningNotes: leads.warningNotes,
+      creditsConsumed: leads.creditsConsumed,
+    })
+    .from(leads)
+    .where(and(eq(leads.id, leadId), eq(leads.userId, userId)))
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function updateLeadResearchStatus(
+  leadId: number,
+  userId: number,
+  researchStatus: string,
+  researchError?: string | null
+) {
+  const db = await getDb();
+  if (!db) return null;
+  const updateSet: Partial<Pick<Lead, "researchStatus" | "researchError">> = { researchStatus };
+  if (researchError !== undefined) {
+    updateSet.researchError = researchError;
+  }
+  await db
+    .update(leads)
+    .set(updateSet)
+    .where(and(eq(leads.id, leadId), eq(leads.userId, userId)));
+  return getLeadResearchArtifacts(leadId, userId);
+}
+
+export async function saveLeadResearchArtifacts(
+  leadId: number,
+  userId: number,
+  data: LeadResearchArtifactsInput
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const updateSet: Partial<Pick<
+    Lead,
+    | "researchSources"
+    | "handoffBrief"
+    | "replyProbability"
+    | "qualityScore"
+    | "warningNotes"
+    | "creditsConsumed"
+    | "researchStatus"
+    | "researchError"
+  >> = {};
+
+  if (data.researchSources !== undefined) updateSet.researchSources = data.researchSources;
+  if (data.handoffBrief !== undefined) updateSet.handoffBrief = data.handoffBrief;
+  if (data.replyProbability !== undefined) updateSet.replyProbability = data.replyProbability;
+  if (data.qualityScore !== undefined) updateSet.qualityScore = data.qualityScore;
+  if (data.warningNotes !== undefined) updateSet.warningNotes = data.warningNotes;
+  if (data.creditsConsumed !== undefined) updateSet.creditsConsumed = data.creditsConsumed;
+  if (data.researchStatus !== undefined) updateSet.researchStatus = data.researchStatus;
+  if (data.researchError !== undefined) updateSet.researchError = data.researchError;
+
+  if (Object.keys(updateSet).length > 0) {
+    await db
+      .update(leads)
+      .set(updateSet)
+      .where(and(eq(leads.id, leadId), eq(leads.userId, userId)));
+  }
+
+  return getLeadResearchArtifacts(leadId, userId);
+}
+
 // ============================================================
 // ANALYSIS HELPERS
 // ============================================================

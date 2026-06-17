@@ -25,6 +25,7 @@ import {
   createFeedback, getFeedbacksByUser, getAllFeedbacks,
   updateFeedbackAnalysis, deleteFeedback, getDb,
   getAuthLogs, getSentEmailLogs,
+  updateLeadResearchStatus,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -35,6 +36,7 @@ import { storagePut, storageDelete } from "./storage";
 import { nanoid } from "nanoid";
 import { validateSnovioCredentials, domainSearch } from "./services/snovio";
 import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services/email-sender";
+import { enqueueResearchEmailJob } from "./services/research-queue";
 
 // Helper: build sender context string for LLM
 async function buildSenderContext(userId: number): Promise<string> {
@@ -43,8 +45,10 @@ async function buildSenderContext(userId: number): Promise<string> {
   // Get user name for email signature
   const db = await getDb();
   let userName = "";
-  const [userRecord] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
-  if (userRecord?.name) userName = userRecord.name;
+  if (db) {
+    const [userRecord] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+    if (userRecord?.name) userName = userRecord.name;
+  }
   let ctx = `Sender Name: ${userName}\nCompany: ${profile.companyName}\nWebsite: ${profile.website}\nProducts: ${profile.mainProducts}\nAdvantages: ${profile.coreAdvantages}\nCertifications: ${profile.certifications}\nMOQ/Lead Time: ${profile.moqLeadTime}\nSample Policy: ${profile.samplePolicy}\nCustomization: ${profile.customization}`;
   if (profile.assets?.length) {
     ctx += "\n\nUploaded Asset Summaries:\n";
@@ -309,21 +313,23 @@ export const appRouter = router({
           contactName: input.contactName || null, source: 'manual',
           status: 'new', replyStatus: 'not_checked', statusColor: 'slate',
         });
-        const result = await processLeadPipeline(leadId, ctx.user.id, input.email, input.website, input.contactName);
-        const state = await getLeadState(leadId);
-        const lead = await getLeadById(leadId, ctx.user.id);
+	        let pipelineError: string | null = null;
+	        try {
+	          await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
+	          await enqueueResearchEmailJob({ userId: ctx.user.id, leadId });
+	        } catch (e: any) {
+	          pipelineError = e.message || "Failed to enqueue research job";
+	          await updateLeadResearchStatus(leadId, ctx.user.id, "failed", pipelineError);
+	        }
+	        const state = await getLeadState(leadId);
+	        const lead = await getLeadById(leadId, ctx.user.id);
 
-        return {
-          lead, state,
-          email: { id: result.emailId, subject: result.emailResult.subject, body: result.emailResult.body, type: 'warm', round: 0 },
-          thinkingCards: buildThinkingCards([
-            { title: '🌐 网站分析', items: [result.waResult.rawSummary, `行业: ${result.waResult.industry}`, `购买意向: ${result.waResult.purchaseIntentScore}/10`] },
-            { title: '🎯 ICP 匹配', items: [`类型: ${result.icpResult.icpName}`, `痛点: ${(result.icpResult.painPoints || []).join(', ')}`] },
-            { title: '💎 USP 选择', items: [`主打: ${result.uspResult.primaryUsp}`, `原因: ${result.uspResult.whyFit}`] },
-            { title: '✉️ 邮件策略', items: [result.emailResult.strategyNotes] },
-          ]),
-        };
-      }),
+	        return {
+	          lead, state,
+	          queued: !pipelineError,
+	          pipelineError,
+	        };
+	      }),
 
     bulkImport: protectedProcedure
       .input(z.object({
@@ -355,11 +361,13 @@ export const appRouter = router({
 
             if (input.autoGenerate) {
               try {
-                await processLeadPipeline(leadId, ctx.user.id, email, website, contactName || null);
-                generatedCount++;
-              } catch (e) {
-                console.warn('[Bulk Import] auto generate failed for lead', leadId, e);
-              }
+	                await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
+	                await enqueueResearchEmailJob({ userId: ctx.user.id, leadId });
+	                generatedCount++;
+	              } catch (e) {
+	                console.warn('[Bulk Import] auto generate failed for lead', leadId, e);
+	                await updateLeadResearchStatus(leadId, ctx.user.id, "failed", e instanceof Error ? e.message : String(e));
+	              }
             }
           } catch { failedCount++; }
         }
@@ -395,9 +403,10 @@ export const appRouter = router({
             const existing = await getEmailsByLead(leadId);
             if (existing.length > 0) { results.push({ leadId, success: true, error: 'Already has email' }); continue; }
 
-            await processLeadPipeline(leadId, ctx.user.id, lead.email, lead.website, lead.contactName);
-            results.push({ leadId, success: true });
-            processed++;
+	            await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
+	            await enqueueResearchEmailJob({ userId: ctx.user.id, leadId, forceRegenerate: true });
+	            results.push({ leadId, success: true });
+	            processed++;
           } catch (e: any) {
             results.push({ leadId, success: false, error: e.message?.substring(0, 100) });
           }
@@ -406,8 +415,8 @@ export const appRouter = router({
         // Notify user
         await createNotification({
           userId: ctx.user.id, type: 'batch_complete',
-          title: `批量生成完成`,
-          message: `已为 ${processed} 个客户生成开发信，共 ${input.leadIds.length} 个客户`,
+	          title: `批量任务已加入队列`,
+	          message: `已为 ${processed} 个客户加入深度背调和开发信生成队列，共 ${input.leadIds.length} 个客户`,
           actionUrl: '/leads',
         });
 
@@ -463,17 +472,19 @@ export const appRouter = router({
         const results = [];
         for (const lead of input.leads) {
           try {
-            const newLead = await createLead({
-              userId: ctx.user.id,
-              name: lead.name,
-              company: lead.company || '',
-              email: lead.email,
-              website: lead.website || '',
-              title: lead.title || '',
-              phone: lead.phone || '',
-              status: 'active',
-            });
-            results.push({ success: true, leadId: newLead.id, email: lead.email });
+	            const newLead = await createLead({
+	              userId: ctx.user.id,
+	              email: lead.email,
+	              website: lead.website || '',
+	              companyName: lead.company || '',
+	              contactName: lead.name || null,
+	              role: lead.title || null,
+	              source: 'excel',
+	              status: 'new',
+	              replyStatus: 'not_checked',
+	              statusColor: 'slate',
+	            });
+	            results.push({ success: true, leadId: newLead, email: lead.email });
           } catch (err: any) {
             results.push({ success: false, email: lead.email, error: err.message });
           }

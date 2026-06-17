@@ -1,11 +1,11 @@
 services:
   - type: web
-    name: letter-app
-    env: node
+    name: letter-app-web
+    env: docker
     region: oregon
-    plan: free
-    buildCommand: pnpm install && pnpm build
-  startCommand: pnpm drizzle-kit push && node dist/index.js
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    startCommand: pnpm drizzle-kit push && pnpm start
     envVars:
       - key: NODE_ENV
         value: production
@@ -13,10 +13,19 @@ services:
         fromDatabase:
           name: letter-app-db
           property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: letter-app-redis
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_RESPONSES_MODEL
+        value: gpt-5.5
+      - key: SCRAPLING_BIN
+        value: scrapling
       - key: SNOVIO_CLIENT_ID
         sync: false
       - key: SNOVIO_CLIENT_SECRET
@@ -36,8 +45,42 @@ services:
       - key: S3_PUBLIC_URL
         sync: false
 
+  - type: worker
+    name: letter-app-worker
+    env: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    startCommand: pnpm worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: letter-app-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: letter-app-redis
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_RESPONSES_MODEL
+        value: gpt-5.5
+      - key: SCRAPLING_BIN
+        value: scrapling
+      - key: RESEARCH_WORKER_CONCURRENCY
+        value: "2"
+
+  - type: redis
+    name: letter-app-redis
+    region: oregon
+    plan: starter
+    ipAllowList: []
+
 databases:
   - name: letter-app-db
     databaseName: letterapp
     user: letterapp
-    plan: free
+    plan: starter

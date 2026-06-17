@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LeadIntelligenceBadges } from "@/components/LeadIntelligence";
 import { useLocation } from "wouter";
 import { useState, useMemo } from "react";
 import {
@@ -241,6 +242,7 @@ onClick={() => setLocation(`/leads/${lead.id}`)}
 </span>
 )}
 </div>
+<LeadIntelligenceBadges lead={lead} className="mt-2" />
 </div>
 </div>
 

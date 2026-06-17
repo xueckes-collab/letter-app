@@ -203,7 +203,11 @@ function QuickAddLead() {
 
   const createLead = trpc.leads.create.useMutation({
     onSuccess: (data) => {
-      if (data.pipelineError) { toast.warning(`客户已创建，但邮件生成失败`); } else { toast.success(`已完成 ${data.lead?.companyName || data.lead?.website || data.lead?.email || '该客户'} 的首封草稿`); }
+      if (data.pipelineError) {
+        toast.warning(`客户已创建，但深度背调入队失败`);
+      } else {
+        toast.success(`已加入深度背调队列：${data.lead?.companyName || data.lead?.website || data.lead?.email || '该客户'}`);
+      }
       utils.leads.list.invalidate();
       if (data.lead?.id) setLocation(`/leads/${data.lead.id}`);
     },
@@ -257,9 +261,9 @@ function QuickAddLead() {
           </div>
           <Button type="submit" disabled={createLead.isPending} className="w-full">
             {createLead.isPending ? (
-              <span className="flex items-center gap-2"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> AI 分析中...</span>
+                <span className="flex items-center gap-2"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在加入队列...</span>
             ) : (
-              <>开始分析并生成邮件 <ArrowRight className="ml-2 h-4 w-4" /></>
+              <>加入深度背调队列 <ArrowRight className="ml-2 h-4 w-4" /></>
             )}
           </Button>
         </form>
@@ -279,7 +283,7 @@ function BulkImport() {
 
   const bulkImport = trpc.leads.bulkImport.useMutation({
     onSuccess: (data) => {
-      toast.success(`批量导入完成：成功 ${data.successCount} 条，失败 ${data.failedCount} 条${data.generatedCount ? `，并自动生成 ${data.generatedCount} 封开发信` : ''}`);
+      toast.success(`批量导入完成：成功 ${data.successCount} 条，失败 ${data.failedCount} 条${data.generatedCount ? `，已加入队列 ${data.generatedCount} 条` : ''}`);
       setBulkText('');
       setFileInfo(null);
       utils.leads.list.invalidate();

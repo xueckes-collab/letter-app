@@ -89,6 +89,14 @@ export const leads = pgTable("leads", {
     status: varchar("status", { length: 64 }).default("new").notNull(),
     replyStatus: varchar("replyStatus", { length: 64 }).default("not_checked").notNull(),
     statusColor: varchar("statusColor", { length: 32 }).default("slate").notNull(),
+    researchStatus: varchar("researchStatus", { length: 64 }).default("not_started").notNull(),
+    researchError: text("researchError"),
+    researchSources: json("researchSources"),
+    handoffBrief: text("handoffBrief"),
+    replyProbability: integer("replyProbability"),
+    qualityScore: integer("qualityScore"),
+    warningNotes: json("warningNotes"),
+    creditsConsumed: integer("creditsConsumed").default(0).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
