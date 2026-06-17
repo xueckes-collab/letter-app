@@ -41,4 +41,4 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-CMD ["pnpm", "start"]
+CMD ["sh", "-c", "pnpm drizzle-kit push && pnpm start"]
