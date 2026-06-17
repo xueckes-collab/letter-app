@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: starter
     dockerfilePath: ./Dockerfile
-    startCommand: pnpm drizzle-kit push && pnpm start
+    dockerCommand: pnpm drizzle-kit push && pnpm start
     envVars:
       - key: NODE_ENV
         value: production
@@ -51,7 +51,7 @@ services:
     region: oregon
     plan: starter
     dockerfilePath: ./Dockerfile
-    startCommand: pnpm worker
+    dockerCommand: pnpm worker
     envVars:
       - key: NODE_ENV
         value: production
