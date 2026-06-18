@@ -38,6 +38,29 @@ import { validateSnovioCredentials, domainSearch } from "./services/snovio";
 import { sendEmail, batchSendEmails, verifySmtp, SMTP_PRESETS } from "./services/email-sender";
 import { enqueueResearchEmailJob } from "./services/research-queue";
 
+function hasResearchQueueConfig() {
+  return Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
+}
+
+async function startLeadResearchJob(jobData: { userId: number; leadId: number; forceRegenerate?: boolean }) {
+  await updateLeadResearchStatus(jobData.leadId, jobData.userId, "queued", null);
+
+  if (hasResearchQueueConfig()) {
+    await enqueueResearchEmailJob(jobData);
+    return "queue";
+  }
+
+  void import("./worker")
+    .then(({ processResearchEmailJob }) => processResearchEmailJob(jobData))
+    .catch(async (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ResearchWorker] Inline job failed for lead ${jobData.leadId}:`, error);
+      await updateLeadResearchStatus(jobData.leadId, jobData.userId, "failed", message);
+    });
+
+  return "inline";
+}
+
 // Helper: build sender context string for LLM
 async function buildSenderContext(userId: number): Promise<string> {
   const profile = await getSenderProfile(userId);
@@ -315,8 +338,7 @@ export const appRouter = router({
         });
 	        let pipelineError: string | null = null;
 	        try {
-	          await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
-	          await enqueueResearchEmailJob({ userId: ctx.user.id, leadId });
+	          await startLeadResearchJob({ userId: ctx.user.id, leadId });
 	        } catch (e: any) {
 	          pipelineError = e.message || "Failed to enqueue research job";
 	          await updateLeadResearchStatus(leadId, ctx.user.id, "failed", pipelineError);
@@ -379,8 +401,7 @@ export const appRouter = router({
 
             if (input.autoGenerate) {
               try {
-	                await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
-	                await enqueueResearchEmailJob({ userId: ctx.user.id, leadId });
+	                await startLeadResearchJob({ userId: ctx.user.id, leadId });
 	                generatedCount++;
 	              } catch (e) {
 	                console.warn('[Bulk Import] auto generate failed for lead', leadId, e);
@@ -421,8 +442,7 @@ export const appRouter = router({
             const existing = await getEmailsByLead(leadId);
             if (existing.length > 0) { results.push({ leadId, success: true, error: 'Already has email' }); continue; }
 
-	            await updateLeadResearchStatus(leadId, ctx.user.id, "queued", null);
-	            await enqueueResearchEmailJob({ userId: ctx.user.id, leadId, forceRegenerate: true });
+	            await startLeadResearchJob({ userId: ctx.user.id, leadId, forceRegenerate: true });
 	            results.push({ leadId, success: true });
 	            processed++;
           } catch (e: any) {
